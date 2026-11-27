@@ -10,6 +10,7 @@
   const C = window.HLCore;
   const F = window.HLFormulas || null;
   const TL = window.HLTools || null; // чистота, подбор выдержки, погрешность, IAEA, .docx
+  const AM = window.HLAmount || null; // массы нуклидов, масса ↔ активность
   const DB = window.NUCDB || {};
   const host = window.hostBridge || null; // Electron
   const android = window.AndroidHost || null; // Android WebView
@@ -106,6 +107,8 @@
     iaea: null, // обновление данных IAEA {date, changes: {имя: T}, unc: {имя: отн.}}
     findLast: null,
     gen: null, // генератор: {interval, unit, count, first?, eff: {элемент: %}}
+    amount: 'N', // последний столбец результата: N — атомы, m — масса, mol — моль
+    massLast: null,
     hidden: {}, // скрытые на графике серии
     tab: 'result', fmt: 'text', hover: null,
   };
@@ -524,8 +527,11 @@
     else head.push(`<th scope="col" class="num">A(t), ${esc(u)}</th>`);
     if (unc) head.push(`<th scope="col" class="num" title="Половина 95-процентного интервала для A(${esc(r ? r.holdText : 't')}), метод Монте-Карло">±, %</th>`);
     if (pm) head.push(`<th scope="col" class="num" title="Доля примеси в общей активности (без самой цели${state.countProgeny ? '' : ' и её дочерних продуктов'})">Примесь, %</th>`);
-    head.push(`<th scope="col" class="num">N(${times ? esc(r.holdText) : 't'}), атомов</th>`);
+    const amt = r ? amountColumn(r, times ? r.holdText : 't') : { head: 'N(t), атомов', cells: [] };
+    head.push(AM ? `<th scope="col" class="num"><button type="button" id="amountBtn" class="amount-btn" title="Показать число атомов, массу или количество вещества (моль)">${esc(amt.head)}</button></th>`
+      : `<th scope="col" class="num">${esc(amt.head)}</th>`);
     if (table.tHead) table.tHead.innerHTML = '<tr>' + head.join('') + '</tr>';
+    const amtBtn = $('#amountBtn'); if (amtBtn) amtBtn.addEventListener('click', cycleAmount);
     const tb = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
     if (!r) { tb.innerHTML = ''; return; }
     const out = [];
@@ -555,7 +561,7 @@
         if (pm) extra += isT ? '<td class="num share is-target">цель</td>' : x.stable ? '<td class="num share">—</td>' : `<td class="num share" title="${full(share * 100)} %">${share > 0 ? fmt(share * 100, 3) : '0'}</td>`;
         out.push(`<tr${cls ? ` class="${cls}"` : ''}><td class="iso">${esc(x.name)}</td>` +
           (x.stable ? '<td class="num">—</td>'.repeat(1 + nA) : cell(x.A0 / f, u) + aCells(x)) +
-          extra + cell(x.N, 'атомов') + '</tr>');
+          extra + `<td class="num" title="${esc(amt.cells[i][1])}">${fmt(amt.cells[i][0])}</td>` + '</tr>');
       }
       out.push(`<tr class="total"><td>Сумма</td>${cell(sumA(g.items, 'A0') / f, u)}${sumCells(g.items)}${'<td></td>'.repeat(extraCols)}<td></td></tr>`);
     }
@@ -1152,7 +1158,8 @@
       [],
       [b('Цепочка'), b('Изотоп'), b('T½'), b('T½, с'), b('λ, 1/с'), b('Источник T½'), b('A₀, ' + u), b('N₀, атомов'),
         b(extraT.length ? `A(${r.holdText}), ${u}` : 'A(t), ' + u), b(extraT.length ? `N(${r.holdText}), атомов` : 'N(t), атомов'),
-        ...extraT.map((t) => b(`A(${t.text}), ${u}`)), ...(unc ? [b(`±95 % для A(${r.holdText}), %`)] : []), ...(pm ? [b('Примесь, %')] : [])],
+        ...extraT.map((t) => b(`A(${t.text}), ${u}`)), ...(unc ? [b(`±95 % для A(${r.holdText}), %`)] : []), ...(pm ? [b('Примесь, %')] : []),
+        ...(AM ? [b(extraT.length ? `m(${r.holdText}), г` : 'm(t), г')] : [])],
     );
     const groups = groupsOf(r.rows, r.roots);
     for (const g of groups) for (const x of g.items) {
@@ -1160,7 +1167,8 @@
       res.push([g.root, x.name, C.fmtHalfLife(x.T), x.stable ? '' : x.T, x.lambda, x.stable ? 'стабильный' : srcName(x),
         x.stable ? '' : x.A0 / f, x.N0, x.stable ? '' : x.A / f, x.N, ...extraT.map((t) => (x.stable ? '' : t.A[i] / f)),
         ...(unc ? [x.stable ? '' : unc.A[mainIdx][i].rel * 100] : []),
-        ...(pm ? [x.name === state.target ? 'цель' : x.stable ? '' : pm.share[i] * 100] : [])]);
+        ...(pm ? [x.name === state.target ? 'цель' : x.stable ? '' : pm.share[i] * 100] : []),
+        ...(AM ? [AM.gramsFromAtoms(x.N, x.name)] : [])]);
     }
     res.push([]);
     const sumT = (items, t) => items.reduce((s, x) => s + (x.stable ? 0 : t.A[r.rows.indexOf(x)]), 0) / f;
@@ -1173,7 +1181,7 @@
     r.series.t.forEach((t, p) => dyn.push([t / sc, t, ...idx.map((i) => r.series.A[p][i] / f)]));
 
     const sheets = [
-      { name: 'Результат', rows: res, widths: [22, 11, 16, 13, 13, 14, 13, 13, 13, 13, ...extraT.map(() => 15), ...(unc ? [14] : []), ...(pm ? [12] : [])] },
+      { name: 'Результат', rows: res, widths: [22, 11, 16, 13, 13, 14, 13, 13, 13, 13, ...extraT.map(() => 15), ...(unc ? [14] : []), ...(pm ? [12] : []), ...(AM ? [14] : [])] },
       { name: 'Динамика', rows: dyn, widths: [12, 13, ...idx.map(() => 13)] },
     ];
     if (F && F.text) {
@@ -1663,6 +1671,114 @@
     calc();
   }
 
+  // ---------- масса и удельная активность ----------
+  const AMOUNT_KEY = 'halflife.amount';
+  const AMOUNT_MODES = ['N', 'm', 'mol'];
+  function amountModeGet() { try { const v = localStorage.getItem(AMOUNT_KEY); return AMOUNT_MODES.includes(v) && AM ? v : 'N'; } catch (e) { return 'N'; } }
+  function cycleAmount() {
+    const next = AMOUNT_MODES[(AMOUNT_MODES.indexOf(state.amount) + 1) % AMOUNT_MODES.length];
+    state.amount = next;
+    try { localStorage.setItem(AMOUNT_KEY, next); } catch (e) { /* без хранилища режим живёт до перезагрузки */ }
+    renderResult();
+    const b = $('#amountBtn'); if (b) b.focus();
+  }
+  /** Последний столбец результата: число атомов, масса или количество вещества. */
+  function amountColumn(r, tLabel) {
+    const mode = AM ? state.amount : 'N';
+    if (mode === 'm') {
+      const g = r.rows.map((x) => AM.gramsFromAtoms(x.N, x.name));
+      const mu = AM.massUnit(Math.max(...g));
+      return { head: `m(${tLabel}), ${mu.ru}`, cells: g.map((v) => [v / mu.f, `${full(v)} г`]) };
+    }
+    if (mode === 'mol') return { head: `n(${tLabel}), моль`, cells: r.rows.map((x) => [x.N / AM.NA, `${full(x.N / AM.NA)} моль`]) };
+    return { head: `N(${tLabel}), атомов`, cells: r.rows.map((x) => [x.N, `${full(x.N)} атомов`]) };
+  }
+  const MASS_INPUT_UNITS = ['g', 'mg', 'ug', 'ng', 'pg'];
+  async function cmdMass() {
+    const T = 'Масса и активность';
+    if (!AM) return;
+    const radio = Object.keys(DB).filter((n) => DB[n][0] != null).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+    const inSet = state.set.filter((x) => x.lambda > 0).map((x) => x.name);
+    const def = (state.massLast && DB[state.massLast.name]) ? state.massLast : { name: state.target || inSet[0] || 'Th-229', from: 'G', A: '', AU: actUnit(), G: '1', GU: 'mg' };
+    const mu = (k) => AM.MASS_UNITS.find((u) => u.key === k) || AM.MASS_UNITS[1];
+    const html = '<p>Пересчёт активности чистого нуклида в массу и обратно: A = λ·N, N = m·N<sub>A</sub>/M. ' +
+      'Атомные массы — AME 2020.</p>' +
+      `<div class="mass-grid"><label for="massName">Изотоп</label><input id="massName" type="text" list="massNames" autocomplete="off" spellcheck="false" value="${esc(def.name)}">` +
+      `<datalist id="massNames">${inSet.concat(radio.filter((n) => !inSet.includes(n))).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>` +
+      `<label for="massA">Активность</label><span class="inp-unit"><input id="massA" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.A)}">` +
+      `<select id="massAU" aria-label="Единица активности">${Object.entries(ACT_UNITS).map(([k, v]) => `<option value="${k}"${k === def.AU ? ' selected' : ''}>${v.ru}</option>`).join('')}</select></span>` +
+      `<label for="massG">Масса</label><span class="inp-unit"><input id="massG" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.G)}">` +
+      `<select id="massGU" aria-label="Единица массы">${MASS_INPUT_UNITS.map((k) => `<option value="${k}"${k === def.GU ? ' selected' : ''}>${mu(k).ru}</option>`).join('')}</select></span>` +
+      '</div><div id="massOut" class="mass-out" role="status"></div><p class="msg error" id="massErr" role="alert" hidden></p>';
+    let from = def.from === 'G' ? 'G' : 'A';
+    let cur = null; // {name, A (Бк)}
+    function update() {
+      const err = $('#massErr'); err.hidden = true;
+      const out = $('#massOut');
+      cur = null;
+      const name = C.normalizeName($('#massName').value);
+      if (!name) { out.innerHTML = ''; err.textContent = 'Такого изотопа нет в базе. Пример: Th-229, ra226, 225Ac.'; err.hidden = !$('#massName').value.trim(); return; }
+      const T12 = DB[name][0];
+      if (T12 == null) { out.innerHTML = `<p>${esc(name)} стабилен: у него нет активности.</p>`; return; }
+      const lambda = Math.LN2 / ((state.overrides[name] && state.overrides[name].T) || T12);
+      const mm = AM.molarMass(name);
+      const sa = AM.specificActivity(name, lambda);
+      const aF = ACT_UNITS[$('#massAU').value].f, gF = mu($('#massGU').value).f;
+      let A = null, g = null;
+      if (from === 'A') {
+        const v = parseNum($('#massA').value);
+        if (v !== null && !isNaN(v) && v >= 0) { A = v * aF; g = A / sa; $('#massG').value = fmtInput(Number((g / gF).toPrecision(6))); }
+        else if (v !== null) { err.textContent = 'Активность — неотрицательное число.'; err.hidden = false; }
+      } else {
+        const v = parseNum($('#massG').value);
+        if (v !== null && !isNaN(v) && v >= 0) { g = v * gF; A = g * sa; $('#massA').value = fmtInput(Number((A / aF).toPrecision(6))); }
+        else if (v !== null) { err.textContent = 'Масса — неотрицательное число.'; err.hidden = false; }
+      }
+      let h = `<p><b>${esc(name)}</b>: T½ = ${esc(C.fmtHalfLife(Math.LN2 / lambda))}${state.overrides[name] ? ' (ваше значение)' : ''}; ` +
+        `M = ${fmt(mm.M, 9)} г/моль${mm.exact ? '' : ' (массовое число)'}.<br>Удельная активность: <b>${fmt(sa)} Бк/г</b> = ${fmt(sa / 3.7e10)} Ки/г.</p>`;
+      if (A != null) {
+        const N = g * AM.NA / mm.M;
+        h += `<p>${fmt(A)} Бк = ${fmt(A / 3.7e10)} Ки; масса ${fmt(g)} г; ${fmt(N)} атомов; ${fmt(N / AM.NA)} моль.</p>`;
+        cur = { name, A };
+      }
+      out.innerHTML = h;
+      state.massLast = { name, from, A: $('#massA').value, AU: $('#massAU').value, G: $('#massG').value, GU: $('#massGU').value };
+    }
+    const pr = dialog({
+      title: T, html, focus: from === 'A' ? '#massA' : '#massG',
+      buttons: [{ label: 'Задать A₀ в таблице', value: 'use', primary: true }, { label: 'Закрыть', value: 'cancel' }],
+      validate: (v) => {
+        if (v !== 'use') return true;
+        update();
+        if (!cur) { const e = $('#massErr'); e.textContent = 'Укажите изотоп и активность или массу.'; e.hidden = false; return false; }
+        return true;
+      },
+    });
+    $('#massA').addEventListener('input', () => { from = 'A'; update(); });
+    $('#massG').addEventListener('input', () => { from = 'G'; update(); });
+    // смена единицы пересчитывает число в этом поле из другого поля, физическая величина не меняется
+    $('#massAU').addEventListener('change', () => { from = 'G'; update(); });
+    $('#massGU').addEventListener('change', () => { from = 'A'; update(); });
+    $('#massName').addEventListener('input', update);
+    update();
+    const r = await pr;
+    if (r !== 'use' || !cur) return;
+    putActivity(cur.name, cur.A);
+  }
+  /** Записывает A₀ (Бк) изотопу в таблице; если его нет в наборе, добавляет как родоначальника. */
+  function putActivity(name, Abq) {
+    if (state.locked) setLocked(false);
+    if (!state.set.some((x) => x.name === name)) {
+      addRoots(name);
+      if (!state.set.some((x) => x.name === name)) return;
+    }
+    state.activities[name] = fmtInput(Number((Abq / ACT_UNITS[actUnit()].f).toPrecision(10)));
+    changed();
+    renderInput();
+    const inp = $$('#inputTable input[data-name]').find((i) => i.dataset.name === name);
+    if (inp) { inp.focus(); if (inp.select) inp.select(); }
+  }
+
   // ---------- обновление данных IAEA ----------
   const IAEA_URL = 'https://www-nds.iaea.org/relnsd/v1/data?fields=ground_states&nuclides=all';
   const IAEA_KEY = 'halflife.iaeaUpdate';
@@ -1912,6 +2028,7 @@
     tab: selectTab,
     protocol: cmdProtocol, print: cmdPrint, findHold: cmdFindHold, uncertainty: cmdUncertainty, updateData: cmdUpdateData,
     generator: cmdGenerator,
+    mass: cmdMass,
   };
   function run(cmd, arg) {
     const f = COMMANDS[cmd];
@@ -2066,6 +2183,7 @@
     if (android) document.body.classList.add('android');
     if (window.HLNoPrint) { const pi = $('#printItem'); if (pi) pi.hidden = true; }
     loadIaeaUpdate();
+    state.amount = amountModeGet();
     fillNuclideList();
     fillPresetMenu();
     bindMenus();

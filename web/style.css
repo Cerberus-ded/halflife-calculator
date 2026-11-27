@@ -844,4 +844,24 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 @media (max-width: 600px) {
   .gen-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .gen-chart { height: 180px; }
+/* ============ Масса и активность (окно «Данные → Масса и активность», столбец атомов/массы) ============ */
+.amount-btn {
+  min-height: 0; height: auto; padding: 0; border: 0; background: none; box-shadow: none;
+  font: inherit; color: inherit; text-align: right; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.amount-btn::after { content: " ⇄"; color: var(--ink-3); }
+.amount-btn:hover { color: var(--accent-ink); background: none; }
+.mass-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: center; margin: 12px 0; }
+.mass-grid > label { font-weight: 600; }
+.mass-grid .inp-unit { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.mass-grid input[type="text"] { width: 160px; max-width: 100%; height: var(--ctl-h); text-align: right; }
+.mass-grid #massName { text-align: left; }
+.mass-grid select { height: var(--ctl-h); }
+.mass-out { padding: 8px 10px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent-line); font-variant-numeric: tabular-nums; }
+.mass-out:empty { display: none; }
+.mass-out p { margin: 0 0 4px; }
+.mass-out p:last-child { margin-bottom: 0; }
+@media (max-width: 600px) {
+  .mass-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }

@@ -15,7 +15,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 WEB = os.path.join(ROOT, 'web')
-FILES = ['nucdb.js', 'core.js', 'formulas.js', 'xlsx.js', 'tools.js', 'presets.js', 'help.js', 'app.js', 'style.css', 'icon.svg']
+FILES = ['nucdb.js', 'core.js', 'formulas.js', 'xlsx.js', 'tools.js', 'masses.js', 'amount.js', 'presets.js', 'help.js', 'app.js', 'style.css', 'icon.svg']
 
 src = open(os.path.join(WEB, 'index.html'), encoding='utf-8').read()
 m = re.search(r'<body[^>]*>(.*)</body>', src, re.S)

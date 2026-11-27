@@ -67,6 +67,7 @@ function buildMenu() {
       item('Подбор выдержки…', 'findHold'),
       item('Генератор: многократные отборы…', 'generator'),
       item('Погрешность результата…', 'uncertainty'),
+      item('Масса и активность…', 'mass'),
     ] },
     { label: 'При&меры', submenu: presets.length
       ? presets.map((p) => ({ label: p.title, click: () => send('preset', p.id) }))
