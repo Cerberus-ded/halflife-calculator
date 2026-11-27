@@ -11,7 +11,7 @@ const e2e = path.join(__dirname, '..', 'desktop', 'test', 'e2e-web.js');
 if (fs.existsSync(e2e)) {
   let pw = true;
   try { require.resolve('playwright'); } catch (e) { pw = false; }
-  if (pw) { scripts.push(e2e); for (const f of ['e2e-features.js', 'e2e-tools.js', 'e2e-generator.js', 'e2e-mass.js', 'e2e-scheme.js', 'e2e-backcalc.js', 'e2e-chart.js']) { const x = path.join(path.dirname(e2e), f); if (fs.existsSync(x)) scripts.push(x); } } else console.log('! Playwright не найден — сценарии интерфейса (desktop/test/e2e-web.js) пропущены\n');
+  if (pw) { scripts.push(e2e); for (const f of ['e2e-features.js', 'e2e-tools.js', 'e2e-generator.js', 'e2e-mass.js', 'e2e-scheme.js', 'e2e-backcalc.js', 'e2e-chart.js', 'e2e-recent.js']) { const x = path.join(path.dirname(e2e), f); if (fs.existsSync(x)) scripts.push(x); } } else console.log('! Playwright не найден — сценарии интерфейса (desktop/test/e2e-web.js) пропущены\n');
 }
 for (const s of scripts) {
   const r = spawnSync(process.execPath, [path.isAbsolute(s) ? s : path.join(__dirname, s)], { stdio: 'inherit' });

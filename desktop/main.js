@@ -36,6 +36,7 @@ function buildMenu() {
     { label: '&Файл', submenu: [
       item('Новый', 'new', 'CmdOrCtrl+N'),
       item('Открыть…', 'open', 'CmdOrCtrl+O'),
+      item('Недавние расчёты…', 'recent'),
       { type: 'separator' },
       item('Сохранить', 'save', 'CmdOrCtrl+S'),
       item('Сохранить как…', 'saveAs', 'CmdOrCtrl+Shift+S'),
