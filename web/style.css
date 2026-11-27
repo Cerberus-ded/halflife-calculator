@@ -829,7 +829,7 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .gen-els { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px 10px; margin: 0 0 10px; }
 .gen-el { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px 4px 8px; border: 1px solid var(--rule); border-radius: 6px; min-width: 0; }
 .gen-el-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
-.gen-el-name small { color: var(--ink-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gen-el-name small { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gen-el input { width: 58px; height: 26px; text-align: right; flex: none; }
 .gen-el:has(input:not(:placeholder-shown)) { border-color: var(--accent-line); background: var(--accent-soft); }
 .gen-out:empty { display: none; }
