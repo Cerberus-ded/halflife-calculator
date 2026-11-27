@@ -95,11 +95,11 @@
         <span class="step-num" aria-hidden="true">1</span>
         <div class="step-titles">
           <h2 id="inputTitle">Какой изотоп считаем?</h2>
-          <p class="step-hint">Напишите символ элемента и число через дефис, например <b>Cs-137</b> (цезий-137), <b>U-238</b> или <b>Th-229</b>.</p>
+          <p class="step-hint">Напишите изотоп латиницей или по-русски: <b>Cs-137</b> или <b>цезий-137</b>, <b>U-238</b>, <b>торий-229</b>.</p>
         </div>
       </div>
       <div class="root-add">
-        <input id="rootInput" type="text" list="nuclideList" placeholder="Например, Cs-137"
+        <input id="rootInput" type="text" placeholder="Например, Cs-137 или цезий-137"
                autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"
                aria-label="Название изотопа" aria-describedby="rootHint">
         <button id="addRootBtn" type="button">
@@ -107,7 +107,6 @@
           Добавить
         </button>
       </div>
-      <datalist id="nuclideList"></datalist>
       <div id="rootChips" class="chips" aria-live="polite"></div>
       <p id="rootError" class="msg" role="alert" hidden></p>
       <p class="hint" id="rootHint">Изотопы, в которые он превращается при распаде, программа добавит сама. Можно добавить несколько.</p>
@@ -304,7 +303,7 @@
           </summary>
           <div class="pb-body">
             <span class="pb-group"><label for="targetSel">Нужный изотоп</label>
-            <select id="targetSel" title="Изотоп-продукт: для него считается чистота, остальные — примеси"><option value="">— не выбран —</option></select></span>
+            <span class="iso-field"><input id="targetSel" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="не выбран" title="Изотоп-продукт: для него считается чистота, остальные — примеси. Можно по-русски: актиний-225"><button type="button" class="iso-pt" data-pt-for="targetSel" hidden></button></span></span>
             <span class="pb-group"><label for="limitInp">Допустимая примесь</label>
             <span class="inp-unit"><input id="limitInp" type="text" inputmode="decimal" autocomplete="off" value="0,1" title="Допустимая доля каждой примеси в общей активности, %"> %</span></span>
             <label class="check"><input type="checkbox" id="progenyChk"> считать примесью и то, что получается из самого продукта</label>
@@ -418,6 +417,19 @@
     <div class="dlg-foot"><button class="primary" type="submit" value="ok">OK</button></div>
   </form>
 </dialog>
+<!-- ============ Таблица Менделеева поверх окна инструмента: выбор одного изотопа (ptable.js) ============ -->
+<dialog id="ptDlg" class="pt-dlg" aria-labelledby="ptDlgTitle">
+  <form method="dialog">
+    <div class="dlg-head">
+      <h2 id="ptDlgTitle">Выберите изотоп</h2>
+      <button class="dlg-x" type="submit" value="cancel" aria-label="Закрыть">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="ptDlgBody" class="dlg-body" tabindex="-1"></div>
+    <div class="dlg-foot"><button type="submit" value="cancel">Отмена</button><button class="primary" type="submit" value="ok">Готово</button></div>
+  </form>
+</dialog>
 <input type="file" id="fileInput" accept=".hlc,.json,application/json,.mpl,.tex,.py,.txt,.csv,.tsv,.xlsx" hidden>
 
 <script src="nucdb.js"></script>
@@ -432,6 +444,8 @@
 <script src="presets.js"></script>
 <script src="help.js"></script>
 <script src="elements.js"></script>
+<script src="picker.js"></script>
+<script src="ptable.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

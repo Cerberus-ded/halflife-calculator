@@ -62,7 +62,13 @@ async function menu(page, cmd) {
   check(await page.locator('#emptyState').isHidden(), 'пустое состояние скрыто');
   check(await page.locator('#resultEmpty').isVisible(), 'до расчёта видна подсказка #resultEmpty');
   check(await page.locator('[data-cmd="export"]').isDisabled(), 'экспорт неактивен до расчёта');
-  check(await page.locator('#nuclideList option').count() > 1000, 'автодополнение: >1000 радионуклидов');
+  check(await page.evaluate(() => HLPicker.allRadioactive().length) > 1000, 'подсказки: в базе >1000 радионуклидов');
+  await page.fill('#rootInput', 'рад');
+  const sug = await page.locator('.iso-sug:not([hidden]) .iso-opt').evaluateAll((a) => a.map((o) => o.dataset.name));
+  check(sug.length > 3 && sug.every((n) => /^(Ra|Rn)-/.test(n)) && sug.some((n) => n.startsWith('Ra-')) && sug.some((n) => n.startsWith('Rn-')), `«рад» → подсказки радия и радона (${sug.length})`);
+  await page.locator('#rootInput').press('Escape');
+  check(await page.locator('.iso-sug:not([hidden])').count() === 0, 'Esc закрывает подсказки');
+  await page.fill('#rootInput', '');
   await page.screenshot({ path: path.join(OUT, '01-start.png') });
 
   console.log('2. Расчёт Th-229 + Th-228');

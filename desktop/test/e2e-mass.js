@@ -64,6 +64,10 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Th-22
     check(Math.abs(num(await p.inputValue('#massG')) - 1.0115) < 3e-3, '1 Ки Ra-226 = ' + await p.inputValue('#massG') + ' г');
     await p.fill('#massName', 'Zz-1'); await p.waitForTimeout(100);
     check(await p.isVisible('#massErr'), 'неизвестный изотоп — подсказка');
+    await p.fill('#massName', 'актиний-225'); await p.waitForTimeout(100);
+    check(/^Ac-225: T½ = 9,92 сут/.test(await p.textContent('#massOut')) && !(await p.isVisible('#massErr')), '«актиний-225» → Ac-225: ' + (await p.textContent('#massOut')).slice(0, 40));
+    await p.press('#massName', 'Enter'); await p.waitForTimeout(100);
+    check(await p.$eval('#dlg', (d) => d.open) && await p.inputValue('#massName') === 'Ac-225', 'Enter выбирает подсказку и не закрывает окно');
     await p.fill('#massName', 'Ra-226'); await p.waitForTimeout(100);
     if (OUT) await p.screenshot({ path: path.join(OUT, 'mass-desk.png') });
     await p.click('#dlg button[value="use"]'); await p.waitForTimeout(250);

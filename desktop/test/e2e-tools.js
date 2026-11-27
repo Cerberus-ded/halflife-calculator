@@ -37,13 +37,26 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
   });
   const lastSaved = async () => { const s = await p.evaluate(() => window.__saved.pop()); return s ? { name: s.name, buf: Buffer.from(s.b64, 'base64') } : null; };
   const dlgClick = async (value) => { await p.click(`#dlg button[value="${value}"]`); await p.waitForTimeout(150); };
+  // ввод изотопа в поле с подсказками: напечатать и уйти из поля (как Tab)
+  const pickIso = async (pg, sel, text) => { await pg.fill(sel, text); await pg.$eval(sel, (e) => e.blur()); await pg.waitForTimeout(200); };
+  const sugNames = (sel) => p.$eval(sel, (e) => { const l = document.getElementById(e.getAttribute('aria-controls')); return l && !l.hidden ? [...l.querySelectorAll('.iso-opt')].map((o) => o.dataset.name) : []; });
 
   await p.evaluate((t) => App.loadText(t, 'ac.hlc'), DOC);
   await p.click('#calcBtn'); await p.waitForTimeout(200);
 
   // ---- чистота и предел ----
   check(await p.isVisible('#purityBar'), 'строка чистоты видна после расчёта');
-  await p.selectOption('#targetSel', 'Ac-225'); await p.waitForTimeout(100);
+  await p.click('#targetSel'); await p.waitForTimeout(50);
+  const allTargets = await sugNames('#targetSel');
+  check(allTargets.length >= 2 && allTargets.includes('Ac-225') && allTargets.includes('Ac-227'), 'щелчок по полю «Нужный изотоп» — список изотопов расчёта: ' + allTargets.length);
+  await p.fill('#targetSel', 'акт'); await p.waitForTimeout(50);
+  const sAct = await sugNames('#targetSel');
+  check(sAct.length >= 2 && sAct.every((x) => x.startsWith('Ac-')), '«акт» → подсказки актиния: ' + sAct.join(', '));
+  await pickIso(p, '#targetSel', 'Ra-226');
+  check(await p.$eval('#purityOut', (e) => e.classList.contains('bad')) && /Ra-226 нет в этом расчёте/.test(await p.textContent('#purityOut')) &&
+    await p.getAttribute('#targetSel', 'aria-invalid') === 'true', 'чужой изотоп в «Нужный изотоп» — понятная ошибка: ' + await p.textContent('#purityOut'));
+  await pickIso(p, '#targetSel', 'актиний-225');
+  check(await p.inputValue('#targetSel') === 'Ac-225' && await p.getAttribute('#targetSel', 'aria-invalid') !== 'true', '«актиний-225» в «Нужный изотоп» → Ac-225');
   const pur = await p.textContent('#purityOut');
   check(/Радионуклидная чистота Ac-225 через 10 сут: 99,9/.test(pur), 'чистота: ' + pur);
   const heads = await p.$$eval('#resultTable thead th', (a) => a.map((x) => x.textContent));
@@ -84,7 +97,16 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
 
   // ---- подбор выдержки ----
   await p.evaluate(() => { App.run('findHold'); }); await p.waitForTimeout(150);
-  await p.selectOption('#findName', 'Ac-225');
+  await p.fill('#findName', 'ак'); await p.waitForTimeout(50);
+  check((await sugNames('#findName')).length > 0, 'подбор выдержки: подсказки под полем изотопа');
+  await p.press('#findName', 'Escape'); await p.waitForTimeout(50);
+  check(await p.$eval('#dlg', (d) => d.open) && (await sugNames('#findName')).length === 0, 'Esc закрывает список подсказок, а не окно');
+  await p.fill('#findName', 'Ra-226');
+  await p.click('#dlg button[value="find"]'); await p.waitForTimeout(150);
+  check(/Ra-226 нет в этом расчёте/.test(await p.textContent('#findOut')), 'подбор выдержки: чужой изотоп — ошибка: ' + await p.textContent('#findOut'));
+  await p.fill('#findName', 'актиний-225'); await p.waitForTimeout(50);
+  await p.press('#findName', 'Enter'); await p.waitForTimeout(100);
+  check(await p.$eval('#dlg', (d) => d.open) && await p.inputValue('#findName') === 'Ac-225', 'Enter в подсказках выбирает изотоп и не закрывает окно: «актиний-225» → Ac-225');
   await p.click('#findLe'); await p.fill('#findLe', '1000');
   check(await p.$eval('#dlg button[value="apply"]', (e) => e.disabled), '«Применить» недоступна до поиска');
   await p.click('#dlg button[value="find"]'); await p.waitForTimeout(150);
@@ -93,10 +115,10 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
   check(new RegExp('опустится до 1000 Бк через ' + String(tExp.toPrecision(4)).replace('.', ',') + ' сут').test(fo), 'спад Ac-225 до 1000 Бк: ' + fo);
   if (OUT) await p.screenshot({ path: path.join(OUT, 'tools-find.png') });
   await p.check('#dlgBody input[name="findType"][value="max"]');
-  await p.selectOption('#findName', 'Ra-223');
+  await pickIso(p, '#findName', 'Ra-223');
   await p.click('#dlg button[value="find"]'); await p.waitForTimeout(150);
   check(/Максимум активности Ra-223/.test(await p.textContent('#findOut')), 'максимум Ra-223: ' + (await p.textContent('#findOut')));
-  await p.selectOption('#findName', 'Ac-225');
+  await pickIso(p, '#findName', 'Ac-225');
   await p.check('#dlgBody input[name="findType"][value="le"]');
   await p.click('#dlg button[value="find"]'); await p.waitForTimeout(150);
   await dlgClick('apply'); await p.waitForTimeout(250);
@@ -144,7 +166,7 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
   await ph.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // блоки «Дополнительно» раскрыты
   await ph.evaluate((t) => App.loadText(t, 'ac.hlc'), DOC);
   await ph.click('#calcBtn'); await ph.waitForTimeout(200);
-  await ph.selectOption('#targetSel', 'Ac-225');
+  await pickIso(ph, '#targetSel', 'Ac-225');
   const ov = await ph.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check(!ov, 'телефон: нет горизонтальной прокрутки');
   if (OUT) {
