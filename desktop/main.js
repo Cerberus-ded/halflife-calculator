@@ -14,14 +14,14 @@ let pageState = { dirty: false, hasResult: false, locked: false };
 let presets = [];
 let forceClose = false;
 let lastDir = null;
-let pendingFile = fileFromArgs(process.argv);
+// Открываются расчёты .hlc и формулы (Maple, LaTeX, Python, текст, CSV, Excel) — формат узнаёт страница (formula-import.js)
+const FORMULA_EXT = ['mpl', 'tex', 'py', 'txt', 'csv', 'tsv', 'xlsx'];
+const OPEN_RE = new RegExp(`\\.(hlc|json|${FORMULA_EXT.join('|')})$`, 'i');
+let pendingFile = fileFromArgs(process.argv); // после OPEN_RE: иначе запуск с файлом падает (ReferenceError)
 
 app.setAppUserModelId('ru.halflife.calc');
 app.setName(PRODUCT);
 
-// Открываются расчёты .hlc и формулы (Maple, LaTeX, Python, текст, CSV, Excel) — формат узнаёт страница (formula-import.js)
-const FORMULA_EXT = ['mpl', 'tex', 'py', 'txt', 'csv', 'tsv', 'xlsx'];
-const OPEN_RE = new RegExp(`\\.(hlc|json|${FORMULA_EXT.join('|')})$`, 'i');
 function fileFromArgs(argv) {
   const f = argv.slice(1).find((a) => OPEN_RE.test(a) && fs.existsSync(a));
   return f ? path.resolve(f) : null;
