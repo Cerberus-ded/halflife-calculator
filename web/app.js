@@ -1368,6 +1368,98 @@
     const r = await pr;
     if (r === 'apply' && found && found.t > 0) applyHold(found.t);
   }
+  // ---------- обратный расчёт: A₀ по измерению ----------
+  async function cmdBackCalc() {
+    const T = 'Пересчёт от измерения';
+    if (!TL) return;
+    const names = state.set.filter((x) => x.lambda > 0).map((x) => x.name);
+    if (!names.length) { dialog({ title: T, html: '<p>Сначала добавьте изотоп: пересчёт идёт по его цепочке распада.</p>' }); return; }
+    const { A0, bad } = currentA0Bq();
+    const tableOk = !bad.length && Object.values(A0).some((v) => v > 0);
+    const h = readHold();
+    const roots = state.roots.filter((r) => names.includes(r));
+    const nz = Object.keys(A0).filter((n) => A0[n] > 0);
+    // прошлые значения окна — только для того же набора родоначальников
+    const key = state.roots.join('|');
+    const last = state.backLast && state.backLast.key === key && names.includes(state.backLast.name) ? state.backLast : null;
+    const def = last || {
+      name: names.includes(state.target) ? state.target : state.roots.find((r) => names.includes(r)) || names[0],
+      a: '', au: actUnit(), t: h.ok && h.value > 0 ? fmtInput(h.value) : '1', tu: h.ok && h.value > 0 ? h.unit : 'd',
+      from: tableOk && (nz.length > 1 || !roots.includes(nz[0])) ? 'table' : 'root:' + (nz.length === 1 && roots.includes(nz[0]) ? nz[0] : roots[0] || names[0]),
+      hold: false,
+    };
+    const fromOpts = (roots.length ? roots : names.slice(0, 1)).map((r) => [`root:${r}`, `только ${r} (остальных — 0)`]);
+    if (tableOk) fromOpts.push(['table', 'все, пропорционально таблице']);
+    if (!fromOpts.some(([v]) => v === def.from)) def.from = fromOpts[0][0];
+    const opt = (list, cur) => list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('');
+    const actOpts = Object.keys(ACT_UNITS).map((k) => [k, ACT_UNITS[k].ru]);
+    const tOpts = UNIT_ORDER.map((k) => [k, UNITS[k].ru]);
+    const html = '<p>Измерили активность не вначале, а позже? Укажите, какой изотоп, сколько и через какое время измерили, — ' +
+      'программа найдёт, какой была начальная активность, и подставит её в таблицу.</p>' +
+      '<div class="find-grid bc-grid">' +
+      `<label for="bcName">Измерили</label><select id="bcName">${opt(names.map((n) => [n, n]), def.name)}</select>` +
+      `<label for="bcA">Активность</label><span class="inp-unit"><input id="bcA" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.a)}" placeholder="например, 5000"><select id="bcAU" aria-label="Единица активности">${opt(actOpts, def.au)}</select></span>` +
+      `<label for="bcT">Через</label><span class="inp-unit"><input id="bcT" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.t)}"><select id="bcTU" aria-label="Единица времени">${opt(tOpts, def.tu)}</select></span>` +
+      `<label for="bcFrom">Что было вначале</label><select id="bcFrom">${opt(fromOpts, def.from)}</select>` +
+      '</div>' +
+      `<label class="check-line"><input type="checkbox" id="bcHold"${def.hold ? ' checked' : ''}> поставить выдержку равной этому времени и сразу рассчитать (для проверки)</label>` +
+      '<p id="bcOut" class="find-out" role="status"></p>';
+    let res = null;
+    const pr = dialog({
+      title: T, html, focus: '#bcA',
+      buttons: [{ label: 'Подставить в таблицу', value: 'apply', primary: true }, { label: 'Отмена', value: 'cancel' }],
+      validate: (v) => (v === 'apply' ? !!(res && res.ok) : true),
+    });
+    const out = $('#bcOut');
+    const applyBtn = $('#dlg button[value="apply"]');
+    const read = () => ({
+      name: $('#bcName').value, a: $('#bcA').value, au: $('#bcAU').value, t: $('#bcT').value, tu: $('#bcTU').value,
+      from: $('#bcFrom').value, hold: $('#bcHold').checked, key,
+    });
+    function update() {
+      const v = read();
+      state.backLast = v;
+      res = null;
+      const a = parseNum(v.a), t = parseNum(v.t);
+      let msg = '', badMsg = false;
+      if (a === null) msg = 'Введите измеренную активность.';
+      else if (isNaN(a) || a <= 0) { msg = 'Активность — число больше нуля, например 5000 или 1,5E6.'; badMsg = true; }
+      else if (t === null || isNaN(t) || t < 0) { msg = 'Время — число не меньше нуля.'; badMsg = true; }
+      else {
+        const base = {};
+        if (v.from === 'table') Object.assign(base, A0);
+        else base[v.from.slice(5)] = 1;
+        res = TL.backCalc(state.set, base, v.name, t * UNITS[v.tu].sec, a * ACT_UNITS[v.au].f);
+        if (!res.ok) { msg = res.reason; badMsg = true; } else {
+          const f = ACT_UNITS[actUnit()].f, u = ACT_UNITS[actUnit()].ru;
+          const list = Object.keys(res.A0).filter((n) => res.A0[n] > 0);
+          msg = (list.length === 1 ? 'Начальная активность ' : 'Начальные активности: ') +
+            list.slice(0, 6).map((n) => `${n} — ${fmt(res.A0[n] / f)} ${u}`).join('; ') + (list.length > 6 ? `; ещё ${list.length - 6}` : '') + '.';
+          if (list.length === 1 && list[0] === v.name) msg += ` Поправка на распад: ×${fmt(res.A0[v.name] / (a * ACT_UNITS[v.au].f), 4)}.`;
+        }
+      }
+      out.textContent = msg; out.classList.toggle('bad', badMsg);
+      if (applyBtn) applyBtn.disabled = !(res && res.ok);
+    }
+    $('#dlgBody').addEventListener('input', update);
+    $('#dlgBody').addEventListener('change', update);
+    update();
+    const r = await pr;
+    if (r !== 'apply' || !res || !res.ok) return;
+    const v = read();
+    if (state.locked) setLocked(false);
+    const f = ACT_UNITS[actUnit()].f;
+    for (const x of state.set) {
+      if (!(x.lambda > 0)) continue;
+      const val = res.A0[x.name] > 0 ? res.A0[x.name] / f : 0;
+      state.activities[x.name] = fmtInput(Number(val.toPrecision(6)));
+    }
+    renderInputTable();
+    if (v.hold) { clearDates(); setHold(parseNum(v.t), v.tu); }
+    changed();
+    if (v.hold) calc();
+  }
+
   /** Ставит найденную выдержку (с датами — сдвигает дату использования) и сразу считает. */
   function applyHold(tSec) {
     if (state.locked) setLocked(false);
@@ -1669,6 +1761,7 @@
     openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) loadText(f.text, f.name, { path: f.path }); }); },
     tab: selectTab,
     protocol: cmdProtocol, print: cmdPrint, findHold: cmdFindHold, uncertainty: cmdUncertainty, updateData: cmdUpdateData,
+    backCalc: cmdBackCalc,
   };
   function run(cmd, arg) {
     const f = COMMANDS[cmd];

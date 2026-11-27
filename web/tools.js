@@ -328,7 +328,34 @@
     return zip(files, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   }
 
-  const api = { evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, parseCsv };
+  // ---------- обратный расчёт по измерению ----------
+  /**
+   * Начальные активности, при которых активность изотопа name через tSec равна measured (Бк).
+   * base — A₀ в Бк, задающие соотношение (например, {родоначальник: 1}); все они умножаются на один множитель,
+   * задача линейна. Возвращает {ok, A0, k, perBase} или {ok: false, reason}.
+   */
+  function backCalc(set, base, name, tSec, measured) {
+    const i = set.findIndex((x) => x.name === name);
+    if (i < 0) return { ok: false, reason: `Изотопа ${name} нет в цепочке.` };
+    if (!(set[i].lambda > 0)) return { ok: false, reason: `${name} стабилен: у него нет активности.` };
+    if (!(measured > 0) || !isFinite(measured)) return { ok: false, reason: 'Измеренная активность должна быть больше нуля.' };
+    if (!(tSec >= 0) || !isFinite(tSec)) return { ok: false, reason: 'Время до измерения должно быть числом не меньше нуля.' };
+    if (!Object.keys(base).some((n) => base[n] > 0)) return { ok: false, reason: 'Не от чего считать: нет ни одной начальной активности.' };
+    const a = evaluator(set, base)(tSec)[i];
+    if (!(a > 0) || !isFinite(a)) {
+      const only = Object.keys(base).filter((n) => base[n] > 0);
+      return { ok: false, reason: tSec === 0 && !(base[name] > 0)
+        ? `В начальный момент ${name} ещё не образовался — его активность равна нулю. Укажите время больше нуля.`
+        : `${name} не образуется из ${only.join(', ')} или к этому времени распадается полностью.` };
+    }
+    const k = measured / a;
+    if (!isFinite(k)) return { ok: false, reason: 'Слишком большое время: начальная активность выходит за пределы чисел.' };
+    const A0 = {};
+    for (const n of Object.keys(base)) A0[n] = (base[n] > 0 ? base[n] : 0) * k;
+    return { ok: true, A0, k, perBase: a };
+  }
+
+  const api = { evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, parseCsv, backCalc };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.HLTools = api;
 })(typeof window !== 'undefined' ? window : globalThis);
