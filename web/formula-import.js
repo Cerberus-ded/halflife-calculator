@@ -76,7 +76,8 @@
   function holdFromSeconds(sec) {
     for (const u of ['y', 'd', 'h', 'min']) {
       const v = sec / UNIT_SEC[u];
-      if (v >= 1 && Math.abs(Number(v.toPrecision(10)) - v) <= 1e-9 * v) return { value: Number(v.toPrecision(10)), unit: u };
+      // «круглое» число в этой единице (не больше 6 значащих цифр): 400 сут, а не 1,0951… лет
+      if (v >= 1 && Math.abs(Number(v.toPrecision(6)) - v) <= 1e-12 * v) return { value: Number(v.toPrecision(6)), unit: u };
     }
     for (const u of ['y', 'd', 'h', 'min']) if (sec / UNIT_SEC[u] >= 1) return { value: Number((sec / UNIT_SEC[u]).toPrecision(10)), unit: u };
     return { value: Number(sec.toPrecision(10)), unit: 's' };

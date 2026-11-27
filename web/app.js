@@ -12,6 +12,7 @@
   const TL = window.HLTools || null; // чистота, подбор выдержки, погрешность, IAEA, .docx
   const AM = window.HLAmount || null; // массы нуклидов, масса ↔ активность
   const SCH = window.HLScheme || null; // картинка схемы распада (SVG)
+  const IMP = window.HLImport || null; // загрузка формул: Maple, LaTeX, Python, текст, таблица, Excel
   const DB = window.NUCDB || {};
   const host = window.hostBridge || null; // Electron
   const android = window.AndroidHost || null; // Android WebView
@@ -20,6 +21,9 @@
   const APP_VERSION = '1.0.0';
   const UNTITLED = 'Без имени';
   const FILE_EXT = '.hlc';
+  // Что ещё открывается через «Файл → Открыть…» и перетаскиванием: формулы и таблицы (HLImport)
+  const FORMULA_EXT = ['.mpl', '.mw', '.tex', '.py', '.txt', '.csv', '.tsv', '.xlsx'];
+  const OPEN_EXT = [FILE_EXT, '.json'].concat(IMP ? FORMULA_EXT : []);
   const FILE_FORMAT = 'halflife-calc';
   const FILE_VERSION = 3; // 3: единица активности, дополнительные сроки, даты выдержки
   const HLC_MIME = 'application/json';
@@ -544,17 +548,25 @@
     });
     let changedT = false;
     if (res === 'ok' && newT != null) {
-      if (Math.abs(newT - baseT) <= 1e-12 * baseT) { if (over) { delete state.overrides[name]; changedT = true; } }
-      else if (!over || Math.abs(newT - curT) > 1e-12 * curT) { state.overrides[name] = { T: newT }; changedT = true; }
-    } else if (res === 'reset') { delete state.overrides[name]; changedT = true; }
+      if (Math.abs(newT - baseT) <= 1e-12 * baseT) { if (over) { setOverrideT(name, null); changedT = true; } }
+      else if (!over || Math.abs(newT - curT) > 1e-12 * curT) { setOverrideT(name, newT); changedT = true; }
+    } else if (res === 'reset') { setOverrideT(name, null); changedT = true; }
     if (changedT) { rebuildSet(); changed(); renderInput(); }
     if (reopenData) cmdData();
   }
 
+  /** Свой T½ изотопа (null — вернуть из базы); ветвления из загруженных формул при этом остаются. */
+  function setOverrideT(name, T) {
+    const o = Object.assign({}, state.overrides[name]);
+    if (T == null) delete o.T; else o.T = T;
+    if (o.T != null || o.d) state.overrides[name] = o; else delete state.overrides[name];
+  }
   function cmdResetOverrides() {
     const n = Object.keys(state.overrides).length;
     if (!n) { dialog({ title: 'Сбросить правки', html: '<p>Правок периодов полураспада нет — все значения из базы.</p>' }); return; }
-    dialog({ title: 'Сбросить правки', html: `<p>Вернуть значения из базы для ${n} ${plural(n, ['изотопа', 'изотопов', 'изотопов'])}?</p>`,
+    const nd = Object.values(state.overrides).filter((o) => o.d).length;
+    dialog({ title: 'Сбросить правки', html: `<p>Вернуть значения из базы для ${n} ${plural(n, ['изотопа', 'изотопов', 'изотопов'])}?</p>` +
+      (nd ? `<p class="hint">В том числе ветвления распада, взятые из загруженных формул (${nd}).</p>` : ''),
       buttons: [{ label: 'Сбросить', value: 'ok', primary: true }, { label: 'Отмена', value: 'cancel' }] }).then((r) => {
       if (r !== 'ok') return;
       if (state.locked) setLocked(false);
@@ -1276,7 +1288,7 @@
       activities[x.name] = v === null ? 0 : isNaN(v) ? String(raw) : v;
     }
     const overrides = {};
-    for (const [n, o] of Object.entries(state.overrides)) if (names.has(n) && o && o.T != null) overrides[n] = { T: o.T };
+    for (const [n, o] of Object.entries(state.overrides)) if (names.has(n) && o) { const v = copyOverride(o); if (v) overrides[n] = v; }
     const h = readHold();
     const ex = readExtra();
     const extra = {};
@@ -1295,6 +1307,25 @@
     }, extra, { overrides }), null, 2);
   }
 
+  /** Правка изотопа {T?, d?}: свой T½ и (из загруженных формул) свои ветвления [[дочерний, доля, вид]]. null — правки нет. */
+  function copyOverride(o) {
+    const out = {};
+    const T = Number(o.T);
+    if (o.T != null && T > 0 && isFinite(T)) out.T = T;
+    if (Array.isArray(o.d)) {
+      const d = [];
+      for (const x of o.d) {
+        if (!Array.isArray(x)) return null;
+        const n = C.normalizeName(String(x[0])), br = Number(x[1]);
+        if (!n || !(br > 0 && br <= 1 + 1e-9)) return null;
+        d.push(x[2] ? [n, br, String(x[2])] : [n, br]);
+      }
+      if (d.reduce((a, x) => a + x[1], 0) > 1 + 1e-6) return null;
+      out.d = d;
+    }
+    return out.T != null || out.d ? out : null;
+  }
+
   /** Загружает данные проекта (из файла или примера). Бросает ошибку с понятным текстом. */
   function applyData(d) {
     if (!d || typeof d !== 'object' || (d.format && d.format !== FILE_FORMAT)) throw new Error('Это не файл калькулятора полураспада.');
@@ -1305,8 +1336,9 @@
     for (const r of roots) { const n = C.normalizeName(r); if (n && DB[n][0] != null && !ok.includes(n)) ok.push(n); else warn.push(String(r)); }
     const overrides = {};
     for (const [k, o] of Object.entries(d.overrides || {})) {
-      const n = C.normalizeName(k); const T = o && Number(o.T);
-      if (n && T > 0 && isFinite(T)) overrides[n] = { T }; else warn.push('правка ' + k);
+      const n = C.normalizeName(k);
+      const v = n && o && typeof o === 'object' ? copyOverride(o) : null;
+      if (v && (o.T == null || v.T != null) && (o.d == null || v.d)) overrides[n] = v; else warn.push('правка ' + k);
     }
     const activities = {};
     for (const [k, v] of Object.entries(d.activities || {})) {
@@ -1380,21 +1412,34 @@
   async function cmdOpen() {
     if (!(await confirmDiscard())) return;
     if (host && host.openFile) {
-      try { const f = await host.openFile(); if (f) loadText(f.text, f.name, { path: f.path }); } catch (e) { errorDlg('Не удалось открыть файл', e); }
+      try { const f = await host.openFile(); if (f) openContent(f.bytes ? new Uint8Array(f.bytes) : f.text, f.name, { path: f.path }); } catch (e) { errorDlg('Не удалось открыть файл', e); }
       return;
     }
     if (window.showOpenFilePicker && !android) {
       try {
-        const [h] = await window.showOpenFilePicker({ types: [{ description: 'Расчёт полураспада', accept: { 'application/json': [FILE_EXT, '.json'] } }] });
+        const types = [{ description: 'Расчёт полураспада', accept: { 'application/json': [FILE_EXT, '.json'] } }];
+        if (IMP) types.push({ description: 'Формулы и таблицы (Maple, LaTeX, Python, текст, CSV, Excel)', accept: { 'text/plain': FORMULA_EXT.filter((x) => x !== '.xlsx'), [XLSX_MIME]: ['.xlsx'] } });
+        const [h] = await window.showOpenFilePicker({ types, excludeAcceptAllOption: false });
         const f = await h.getFile();
-        loadText(await f.text(), f.name, { handle: h });
+        await openFileObject(f, { handle: h });
       } catch (e) { if (e.name !== 'AbortError') errorDlg('Не удалось открыть файл', e); }
       return;
     }
     const fi = $('#fileInput'); fi.value = ''; fi.click();
   }
-  async function openFileObject(f) {
-    try { loadText(await f.text(), f.name, {}); } catch (e) { errorDlg('Не удалось открыть файл', e); }
+  async function openFileObject(f, where) {
+    try {
+      const bin = /\.xlsx$/i.test(f.name);
+      await openContent(bin ? new Uint8Array(await f.arrayBuffer()) : await f.text(), f.name, where || {});
+    } catch (e) { errorDlg('Не удалось открыть файл', e); }
+  }
+  /** Открывает содержимое файла: расчёт .hlc — как есть, формулы и таблицы — через окно загрузки формул. */
+  async function openContent(content, name, where) {
+    const kind = IMP ? IMP.detect(content, name) : 'hlc';
+    if (kind === 'hlc' || /\.(hlc|json)$/i.test(name || '') || !IMP) {
+      return loadText(typeof content === 'string' ? content : new TextDecoder().decode(content), name, where);
+    }
+    return importFormulas(content, name);
   }
   function loadText(text, name, where) {
     let d;
@@ -1404,6 +1449,73 @@
     setClean();
     if (where) addRecent(serialize());
     return true;
+  }
+
+  // ---------- загрузка и экспорт формул (Maple, LaTeX, Python, текст, таблица, Excel) ----------
+  /** Разбирает формулы (HLImport), показывает, что загрузится, и по «Загрузить» заменяет текущий расчёт. */
+  async function importFormulas(content, name) {
+    let r;
+    try { r = await IMP.parseAsync(content, name); } catch (e) {
+      errorDlg('Не удалось загрузить формулы', e instanceof IMP.ImportError ? e : 'Файл не разобран: ' + ((e && e.message) || e));
+      return false;
+    }
+    const au = actUnit(), uf = ACT_UNITS[au];
+    let set;
+    try { set = C.buildSet(r.roots, r.overrides); } catch (e) { errorDlg('Не удалось загрузить формулы', e); return false; }
+    const inFile = new Set(r.nuclides.map((x) => x.name));
+    const nT = Object.values(r.overrides).filter((o) => o.T != null).length;
+    let h = `<p>«${esc(name || 'формулы')}» — ${esc(r.formatRu)}. Родоначальники: <b>${esc(r.roots.join(', '))}</b>; ` +
+      `изотопов в расчёте: ${set.length}. ${r.hold != null ? `Выдержка: <b>${esc(holdText(r.hold, r.holdUnit)).replace(' ', '\u00a0')}</b>.` : 'Выдержки в файле нет — останется текущая.'}</p>`;
+    h += `<div class="table-wrap"><table class="grid data-table import-table"><thead><tr><th>Изотоп</th><th>T½</th><th>Распад</th><th class="num">A₀, ${esc(uf.ru)}</th></tr></thead><tbody>`;
+    for (const g of groupsOf(set, r.roots)) {
+      h += `<tr class="chain"><td colspan="4">Цепочка ${esc(g.root)}</td></tr>`;
+      for (const x of g.items) {
+        const ov = r.overrides[x.name] || {};
+        const dbT = DB[x.name] ? DB[x.name][0] : null;
+        const A = r.activities[x.name];
+        const t12 = x.lambda === 0 ? 'стабильный' : esc(C.fmtHalfLife(x.T)) +
+          (ov.T != null ? ` <span class="src" title="По базе: ${esc(C.fmtHalfLife(dbT))}">из файла</span>` : '');
+        h += `<tr><td class="iso">${esc(x.name)}${inFile.has(x.name) ? '' : ' <span class="src" title="В файле этого изотопа нет: цепочка достроена по базе">по базе</span>'}</td>` +
+          `<td class="t12${ov.T != null ? ' overridden' : ''}">${t12}</td><td>${decayText(x)}${ov.d ? ' <span class="src">из файла</span>' : ''}</td>` +
+          `<td class="num">${A ? esc(fmtInput(Number((A / uf.f).toPrecision(6)))) : x.lambda === 0 ? '—' : '0'}</td></tr>`;
+      }
+    }
+    h += '</tbody></table></div>';
+    const warns = r.warnings.filter((w) => !/^время выдержки в файле не найдено/.test(w));
+    if (warns.length) h += `<p><b>Обратите внимание</b></p><ul class="import-warn">${warns.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>`;
+    h += `<p class="hint">Загрузка заменит текущий расчёт. ${nT ? 'Периоды полураспада, отличные от базы, станут правками «польз.»; вернуть значения базы: Данные → Сбросить правки T½.' : 'Все периоды полураспада совпали с базой.'}</p>`;
+    const res = await dialog({ title: 'Загрузка формул', html: h, wide: true,
+      buttons: [{ label: 'Загрузить', value: 'ok', primary: true }, { label: 'Отмена', value: 'cancel' }] });
+    if (res !== 'ok') return false;
+    const cur = readHold();
+    const activities = {};
+    for (const [n, A] of Object.entries(r.activities)) activities[n] = Number((A / uf.f).toPrecision(12));
+    try {
+      applyData({
+        format: FILE_FORMAT, roots: r.roots, activities, actUnit: au, overrides: r.overrides,
+        hold: r.hold != null ? r.hold : cur.ok ? cur.value : DEFAULT_HOLD, holdUnit: r.hold != null ? r.holdUnit : cur.ok ? cur.unit : DEFAULT_UNIT,
+      });
+    } catch (e) { errorDlg('Не удалось загрузить формулы', e); return false; }
+    state.name = String(name || 'формулы').replace(/\.\w+$/, '') || 'формулы'; state.handle = null; state.path = null;
+    markDirty(); updateTitle();
+    if (Object.values(activities).some((v) => v > 0)) calc();
+    return true;
+  }
+
+  /** Файл → Экспорт формул…: уравнения модели в выбранном виде; файл потом открывается обратно. */
+  async function cmdExportFormulas() {
+    if (!F) { errorDlg('Экспорт формул', 'Модуль формул (formulas.js) не загружен.'); return; }
+    if (!state.set.length) { dialog({ title: 'Экспорт формул', html: '<p>Добавьте изотоп-родоначальник — тогда появятся уравнения модели.</p>' }); return; }
+    const res = await dialog({
+      title: 'Экспорт формул',
+      html: '<p>В каком виде сохранить уравнения модели (постоянные распада, систему dN/dt, начальные условия и выдержку)?</p>' +
+        '<p class="hint">Сохранённый файл открывается здесь же через «Файл → Открыть…» — расчёт восстановится. ' +
+        'Код Maple решает систему так же, как программа; числа программы записаны рядом для сравнения. Формулы на экране — вкладка «Формулы».</p>',
+      buttons: Object.entries(FMT).map(([k, f]) => ({ label: `${f.title} (${f.ext})`, value: k, primary: k === state.fmt })).concat([{ label: 'Отмена', value: 'cancel' }]),
+    });
+    if (!FMT[res]) return;
+    state.fmt = res; renderFormulas();
+    downloadFormulas();
   }
 
   async function cmdSave(as) {
@@ -1797,7 +1909,8 @@
         const editable = x.lambda > 0 && !state.locked;
         h += `<tr><td class="iso">${esc(x.name)}</td>` +
           `<td class="t12${over ? ' overridden' : ''}"${editable ? ` tabindex="0" role="button" data-edit-data="${esc(x.name)}" title="Нажмите, чтобы изменить T½"` : ''}>${esc(C.fmtHalfLife(x.T))}</td>` +
-          `<td class="num" title="${x.lambda ? full(x.lambda) : '0'}">${x.lambda ? esc(fmt(x.lambda, 6)) : '0'}</td><td>${decayText(x)}</td>` +
+          `<td class="num" title="${x.lambda ? full(x.lambda) : '0'}">${x.lambda ? esc(fmt(x.lambda, 6)) : '0'}</td><td>${decayText(x)}` +
+          `${state.overrides[x.name] && state.overrides[x.name].d ? ' <span class="src" title="Доли ветвлений взяты из загруженных формул, а не из базы. Вернуть: Данные → Сбросить правки">из формул</span>' : ''}</td>` +
           `<td>${esc(x.lambda === 0 ? 'стабильный' : over ? 'польз.' : x.src)}</td></tr>`;
       }
     }
@@ -2258,7 +2371,7 @@
     const h = readHold();
     const lim = limitFrac();
     const overrides = {};
-    for (const [n, o] of Object.entries(state.overrides)) if (o && o.T != null) overrides[n] = { T: o.T };
+    for (const [n, o] of Object.entries(state.overrides)) { const v = o && copyOverride(o); if (v) overrides[n] = v; }
     try {
       applyData({
         format: FILE_FORMAT, roots: order, activities, actUnit: au, hold: h.ok ? h.value : DEFAULT_HOLD, holdUnit: h.ok ? h.unit : DEFAULT_UNIT,
@@ -2335,7 +2448,7 @@
         if (v !== null && !isNaN(v) && v >= 0) { g = v * gF; A = g * sa; $('#massA').value = fmtInput(Number((A / aF).toPrecision(6))); }
         else if (v !== null) { err.textContent = 'Масса — неотрицательное число.'; err.hidden = false; }
       }
-      let h = `<p><b>${esc(name)}</b>: T½ = ${esc(C.fmtHalfLife(Math.LN2 / lambda))}${state.overrides[name] ? ' (ваше значение)' : ''}; ` +
+      let h = `<p><b>${esc(name)}</b>: T½ = ${esc(C.fmtHalfLife(Math.LN2 / lambda))}${state.overrides[name] && state.overrides[name].T != null ? ' (ваше значение)' : ''}; ` +
         `M = ${fmt(mm.M, 9)} г/моль${mm.exact ? '' : ' (массовое число)'}.<br>Удельная активность: <b>${fmt(sa)} Бк/г</b> = ${fmt(sa / 3.7e10)} Ки/г.</p>`;
       if (A != null) {
         const N = g * AM.NA / mm.M;
@@ -2592,7 +2705,9 @@
     if (times) info.push(['Сроки выдержки', times.map((t) => t.text).join('; ')]);
     info.push(['Единица активности', u], ['Ядерные данные', dataSourceText()]);
     const ov = Object.keys(state.overrides).filter((n) => r.set.some((x) => x.name === n));
-    if (ov.length) info.push(['Правки T½ пользователя', ov.map((n) => `${n}: ${C.fmtHalfLife(state.overrides[n].T)}`).join('; ')]);
+    const ovT = ov.filter((n) => state.overrides[n].T != null), ovD = ov.filter((n) => state.overrides[n].d);
+    if (ovT.length) info.push(['Правки T½ пользователя', ovT.map((n) => `${n}: ${C.fmtHalfLife(state.overrides[n].T)}`).join('; ')]);
+    if (ovD.length) info.push(['Ветвления из загруженных формул', ovD.map((n) => `${n} → ` + state.overrides[n].d.map(([c, b]) => `${c}${b < 1 ? ` (${fmtInput(Number((b * 100).toPrecision(6)))} %)` : ''}`).join(', ')).join('; ')]);
     if (unc) info.push(['Погрешность', `${uncText(r)} (1σ); Монте-Карло, ${unc.n} повторов, интервал 95 %`]);
     if (pm) info.push(['Целевой изотоп', state.target + (state.countProgeny ? '' : ' (его дочерние продукты примесями не считаются)')]);
     if (pm && lim != null) info.push(['Предел примеси', fmtInput(Number((lim * 100).toPrecision(6))) + ' %']);
@@ -2716,7 +2831,8 @@
     new: cmdNew, open: cmdOpen, save: () => cmdSave(false), saveAs: () => cmdSave(true), export: cmdExport,
     data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout, recent: cmdRecent, ptable: cmdPtable,
     calc, edit: unlock, preset: loadPreset, closeRequest,
-    openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) loadText(f.text, f.name, { path: f.path }); }); },
+    openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) openContent(f.bytes ? new Uint8Array(f.bytes) : f.text, f.name, { path: f.path }); }); },
+    exportFormulas: cmdExportFormulas,
     tab: selectTab,
     protocol: cmdProtocol, print: cmdPrint, findHold: cmdFindHold, uncertainty: cmdUncertainty, updateData: cmdUpdateData,
     generator: cmdGenerator,
@@ -2854,13 +2970,20 @@
 
     $('#fileInput').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) openFileObject(f); });
 
-    // перетаскивание файла .hlc в окно
+    // перетаскивание файла в окно: расчёт .hlc или формулы (Maple, LaTeX, Python, текст, CSV, Excel)
+    $('#fileInput').setAttribute('accept', OPEN_EXT.join(',') + ',application/json');
     document.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault(); });
     document.addEventListener('drop', async (e) => {
       const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
       if (!f) return;
       e.preventDefault();
-      if (!/\.(hlc|json)$/i.test(f.name)) { dialog({ title: 'Открытие файла', html: '<p>Перетащите файл расчёта с расширением .hlc.</p>' }); return; }
+      const ext = (f.name.match(/\.\w+$/) || [''])[0].toLowerCase();
+      if (!OPEN_EXT.includes(ext)) {
+        dialog({ title: 'Открытие файла', html: IMP
+          ? `<p>Перетащите файл расчёта (.hlc) или файл с формулами: ${esc(FORMULA_EXT.join(', '))}.</p>`
+          : '<p>Перетащите файл расчёта с расширением .hlc.</p>' });
+        return;
+      }
       if (await confirmDiscard()) openFileObject(f);
     });
 
