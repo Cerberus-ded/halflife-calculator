@@ -69,7 +69,15 @@ const doc = (roots, acts, hold) => JSON.stringify({ format: 'halflife-calc', ver
 
     // 4. «Начать заново»
     await p.reload(); await p.waitForTimeout(150);
-    await p.click('#draftNote [data-draft="reset"]'); await p.waitForTimeout(100);
+    await p.click('#draftNote [data-draft="reset"]');
+    await p.waitForSelector('#dlg[open] button[value="cancel"]');
+    check(/Вернуть его будет нельзя/.test(await p.textContent('#dlgBody')), '«Начать заново» переспрашивает');
+    await dlgPress('cancel'); await p.waitForTimeout(100);
+    s = await snap();
+    check(s.dirty && s.roots.includes('Cs-137') && (await draft()) !== null && await noteShown(), '«Отмена» — расчёт и сообщение на месте');
+    await p.click('#draftNote [data-draft="reset"]');
+    await p.waitForSelector('#dlg[open] button[value="ok"]');
+    await dlgPress('ok'); await p.waitForTimeout(100);
     s = await snap();
     check(!s.dirty && !s.roots.includes('Cs-137') && (await draft()) === null && !(await noteShown()), '«Начать заново»: новый расчёт, черновик удалён');
     await p.reload(); await p.waitForTimeout(100);
