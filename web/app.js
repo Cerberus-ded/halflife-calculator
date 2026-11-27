@@ -196,115 +196,21 @@
     return `Изотопа ${r.sym}-${r.a}${r.meta} нет в базе. Есть, например: ${longest.join(', ')}.`;
   }
 
+  /** Таблица Менделеева (ptable.js): изотоп добавляется в расчёт, повторное нажатие убирает его. */
   async function cmdPtable(start) {
-    if (!EL) return;
+    const PT = window.HLPtable;
+    if (!EL || !PT) return;
     if (state.locked) { dialog({ title: 'Таблица Менделеева', html: '<p>Сейчас данные закреплены. Нажмите «Изменить данные», чтобы добавить изотоп.</p>' }); return; }
-    const avail = {};
-    for (const n of Object.keys(DB)) if (DB[n][0] != null) { const s = n.slice(0, n.indexOf('-')); avail[s] = (avail[s] || 0) + 1; }
-    const inUse = new Set(state.roots.map((r) => r.slice(0, r.indexOf('-'))));
-    let cells = '';
-    for (const e of EL.list) {
-      const p = EL.pos(e.z), n = avail[e.sym] || 0;
-      const t = n ? `${e.ru}, Z = ${e.z}. Радиоактивных изотопов в базе: ${n}` : `${e.ru}, Z = ${e.z}. Нет в базе`;
-      cells += `<button type="button" class="pt-el${n ? '' : ' none'}${inUse.has(e.sym) ? ' used' : ''}" data-sym="${e.sym}" data-row="${p.row}" data-col="${p.col}"` +
-        ` style="grid-row:${p.row};grid-column:${p.col}" title="${esc(t)}" aria-label="${esc(t)}" tabindex="-1"${n ? '' : ' disabled'}>` +
-        `<small>${e.z}</small><b>${e.sym}</b></button>`;
-    }
-    cells += '<span class="pt-ph" style="grid-row:6;grid-column:3" aria-hidden="true">57–71</span><span class="pt-ph" style="grid-row:7;grid-column:3" aria-hidden="true">89–103</span>' +
-      '<span class="pt-flabel" style="grid-row:9;grid-column:1 / span 2">лантаноиды</span><span class="pt-flabel" style="grid-row:10;grid-column:1 / span 2">актиноиды</span>';
-    const p = dialog({
-      title: 'Таблица Менделеева', wide: true,
-      html: '<div class="pt-top"><input id="ptSearch" type="search" placeholder="Найти: цезий, Cs или 55" aria-label="Найти элемент" autocomplete="off" spellcheck="false">' +
-        '<p class="pt-help">Выберите элемент, затем изотоп — он добавится в расчёт. Можно выбрать несколько.</p></div>' +
-        `<div class="pt-wrap"><div class="pt-grid" role="group" aria-label="Элементы">${cells}</div></div>` +
-        '<div id="ptIso" class="pt-iso" aria-live="polite"></div><p id="ptStatus" class="pt-status" role="status"></p>',
-      buttons: [{ label: 'Готово', value: 'ok', primary: true }],
+    const p = dialog({ title: 'Таблица Менделеева', wide: true, html: PT.html({ mode: 'multi' }), buttons: [{ label: 'Готово', value: 'ok', primary: true }] });
+    const ctl = PT.mount($('#dlgBody'), {
+      mode: 'multi', start,
+      roots: () => state.roots.slice(),
+      inChain: (n) => { const x = state.set.find((y) => y.name === n); return x && !state.roots.includes(n) ? x.root : null; },
+      add: (n) => { addRoots(n); return state.roots.includes(n) ? null : (($('#rootError') || {}).textContent || `${n} не добавлен.`); },
+      remove: (n) => removeRoot(n),
     });
-    const body = $('#dlgBody'), grid = $('.pt-grid', body), search = $('#ptSearch'), isoBox = $('#ptIso'), status = $('#ptStatus');
-    let sel = null;
-    const cellOf = (sym) => $(`.pt-el[data-sym="${sym}"]`, grid);
-    const setStatus = (text, err) => { status.textContent = text || ''; status.classList.toggle('error', !!err); };
-    function renderIso(focusName) {
-      if (!sel) { isoBox.innerHTML = '<p class="pt-hint">Выберите элемент — здесь появятся его радиоактивные изотопы.</p>'; return; }
-      const e = EL.bySym[sel], iso = isotopesOf(sel);
-      const roots = new Set(state.roots), inSet = new Set(state.set.map((x) => x.name));
-      isoBox.innerHTML = `<h3>${esc(e.ru)} <span>${esc(e.sym)} · Z = ${e.z}</span></h3><div class="pt-iso-list">` + iso.map((n) => {
-        const added = roots.has(n), chain = !added && inSet.has(n);
-        const note = added ? 'добавлен' : chain ? 'уже в цепочке' : C.fmtHalfLife(DB[n][0]);
-        return `<button type="button" class="pt-iso-btn${added ? ' added' : ''}${chain ? ' chain' : ''}" data-add="${esc(n)}"${added ? ' aria-pressed="true"' : ''}>` +
-          `<b>${esc(n)}</b><span>${esc(note)}</span></button>`;
-      }).join('') + '</div>';
-      if (focusName) { const b = $(`[data-add="${focusName}"]`, isoBox); if (b) b.focus(); }
-    }
-    function select(sym, focusCell) {
-      const c = cellOf(sym); if (!c || c.disabled) return;
-      $$('.pt-el.sel', grid).forEach((x) => { x.classList.remove('sel'); x.tabIndex = -1; x.removeAttribute('aria-pressed'); });
-      c.classList.add('sel'); c.tabIndex = 0; c.setAttribute('aria-pressed', 'true');
-      sel = sym; renderIso();
-      if (focusCell) c.focus();
-      c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
-    function add(n) {
-      if (state.roots.includes(n)) { setStatus(`${n} уже добавлен.`); return; }
-      addRoots(n);
-      const ok = state.roots.includes(n);
-      if (ok) {
-        setStatus(`${n} добавлен в расчёт. Можно выбрать ещё или нажать «Готово».`);
-        const c = cellOf(sel); if (c) c.classList.add('used');
-      } else setStatus(($('#rootError') || {}).textContent || `${n} не добавлен.`, true);
-      renderIso(n);
-    }
-    // первая клетка в порядке обхода — фокусируемая
-    const first = cellOf(state.roots.length ? state.roots[state.roots.length - 1].split('-')[0] : 'H') || cellOf('H');
-    if (first) first.tabIndex = 0;
-    renderIso();
-    const onClick = (ev) => {
-      const c = ev.target.closest('.pt-el'); if (c && !c.disabled) { select(c.dataset.sym); setStatus(''); return; }
-      const b = ev.target.closest('[data-add]'); if (b) add(b.dataset.add);
-    };
-    const onGridKey = (ev) => {
-      const c = ev.target.closest('.pt-el'); if (!c) return;
-      const dir = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[ev.key];
-      if (!dir) { if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); const all = $$('.pt-el:not(:disabled)', grid); const t = ev.key === 'Home' ? all[0] : all[all.length - 1]; t.tabIndex = 0; c.tabIndex = -1; t.focus(); } return; }
-      ev.preventDefault();
-      const r = +c.dataset.row, col = +c.dataset.col;
-      const all = $$('.pt-el:not(:disabled)', grid).map((x) => ({ x, r: +x.dataset.row, c: +x.dataset.col }));
-      let cand;
-      if (dir[0] === 0) {
-        cand = all.filter((o) => o.r === r && (dir[1] > 0 ? o.c > col : o.c < col)).sort((a, b) => (dir[1] > 0 ? a.c - b.c : b.c - a.c))[0];
-      } else {
-        const rows = [...new Set(all.map((o) => o.r))].filter((x) => (dir[0] > 0 ? x > r : x < r)).sort((a, b) => (dir[0] > 0 ? a - b : b - a));
-        for (const rr of rows) { const inRow = all.filter((o) => o.r === rr); if (inRow.length) { cand = inRow.sort((a, b) => Math.abs(a.c - col) - Math.abs(b.c - col))[0]; break; } }
-      }
-      if (cand) { c.tabIndex = -1; cand.x.tabIndex = 0; cand.x.focus(); }
-    };
-    const onSearch = () => {
-      const q = search.value.trim();
-      $$('.pt-el.hit', grid).forEach((x) => x.classList.remove('hit'));
-      if (!q) { setStatus(''); return; }
-      const r = EL.parse(q);
-      const lq = q.toLowerCase().replace(/ё/g, 'е');
-      const hits = r ? [EL.bySym[r.sym]] : EL.list.filter((e) => String(e.z) === q || e.sym.toLowerCase() === lq || e.ru.toLowerCase().replace(/ё/g, 'е').startsWith(lq));
-      const ok = hits.filter((e) => avail[e.sym]);
-      ok.forEach((e) => { const c = cellOf(e.sym); if (c) c.classList.add('hit'); });
-      if (ok.length) select(ok[0].sym);
-      setStatus(ok.length ? '' : 'Не найдено. Введите название элемента (цезий), символ (Cs) или номер (55).', !ok.length);
-    };
-    const onSearchKey = (ev) => {
-      if (ev.key !== 'Enter') return;
-      ev.preventDefault(); ev.stopPropagation();
-      const name = C.normalizeName(search.value) || nameFromWords(search.value);
-      if (name && DB[name][0] != null) { if (name.split('-')[0] !== sel) select(name.split('-')[0]); add(name); return; }
-      const b = $('.pt-iso-btn', isoBox); if (b) b.focus();
-    };
-    body.addEventListener('click', onClick);
-    grid.addEventListener('keydown', onGridKey);
-    search.addEventListener('input', onSearch);
-    search.addEventListener('keydown', onSearchKey);
-    if (start && EL.symbolOf(start)) { search.value = start; onSearch(); }
-    search.focus();
     await p;
-    body.removeEventListener('click', onClick);
+    ctl.destroy();
   }
 
   // ---------- панель ввода ----------

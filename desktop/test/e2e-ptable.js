@@ -1,6 +1,7 @@
 /* Сценарий «Изотоп по названию и таблица Менделеева» (Playwright): ввод «цезий-137», «137 цезий», «технеций-99м»,
  * подсказка для одного названия элемента; окно «Таблица Менделеева»: поиск, выбор элемента, добавление изотопов,
- * повтор и изотоп из цепочки, стрелки, закреплённые данные, телефон.
+ * повторное нажатие убирает изотоп, изотоп из цепочки, стрелки; выбор одного изотопа для поля инструмента
+ * (повторное нажатие снимает выбор), закреплённые данные, телефон.
  * Запуск: node desktop/test/e2e-ptable.js [папка для скриншотов]. */
 'use strict';
 const path = require('path');
@@ -72,8 +73,20 @@ const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fa
     check((await roots()).endsWith('Am-241') && /Am-241 добавлен/.test(await p.textContent('#ptStatus')), 'Am-241 добавлен, окно открыто');
     check(await p.$eval('[data-add="Am-241"]', (e) => e.classList.contains('added') && /добавлен/.test(e.textContent)), 'кнопка изотопа — «добавлен»');
     check(await p.$eval('.pt-el[data-sym="Am"]', (e) => e.classList.contains('used')), 'элемент отмечен');
-    await p.click('[data-add="Am-241"]');
-    check(/уже добавлен/.test(await p.textContent('#ptStatus')), 'повторно — «уже добавлен»');
+    // повторное нажатие по добавленному изотопу убирает его из расчёта
+    await p.click('[data-add="Am-241"]'); await p.waitForTimeout(80);
+    check(!(await roots()).includes('Am-241') && /Am-241 убран из расчёта/.test(await p.textContent('#ptStatus')), 'повторно — Am-241 убран: ' + await roots());
+    check(await p.$eval('[data-add="Am-241"]', (e) => !e.classList.contains('added') && e.getAttribute('aria-pressed') === 'false'), 'кнопка изотопа снова обычная');
+    check(!(await p.$eval('.pt-el[data-sym="Am"]', (e) => e.classList.contains('used'))), 'отметка с элемента снята');
+    await p.click('[data-add="Am-241"]'); await p.waitForTimeout(80);
+    check((await roots()).endsWith('Am-241'), 'третье нажатие — снова добавлен');
+    // Enter в поиске только добавляет: добавленный не снимается
+    await p.fill('#ptSearch', 'Am-241'); await p.press('#ptSearch', 'Enter'); await p.waitForTimeout(80);
+    check((await roots()).endsWith('Am-241') && /уже добавлен/.test(await p.textContent('#ptStatus')), 'Enter в поиске не убирает добавленный');
+    // повторное нажатие по выбранному элементу снимает выбор элемента
+    await p.click('.pt-el[data-sym="Am"]');
+    check(!(await p.$('.pt-el.sel')) && /Выберите элемент/.test(await p.textContent('#ptIso')), 'повторно по элементу — выбор элемента снят');
+    await p.click('.pt-el[data-sym="Am"]');
     // изотоп, который уже есть в цепочке (Np-237 — дочерний Am-241)
     await p.click('.pt-el[data-sym="Np"]');
     check(/уже в цепочке/.test(await p.textContent('[data-add="Np-237"]')), 'дочерний из цепочки помечен');
@@ -96,8 +109,61 @@ const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fa
     await p.click('#dlg button[value="ok"]');
     check(!(await p.$eval('#dlg', (d) => d.open)), '«Готово» закрывает окно');
 
-    // 3. закреплённые данные: кнопка недоступна
+    // 3. один изотоп для поля: Инструменты → Подбор выдержки, окно таблицы поверх окна инструмента
     await p.fill('#inputTable tr:has-text("Cs-137") input', '1000');
+    const openFind = async () => {
+      await p.locator('.menu:has([data-cmd="findHold"]) .menu-btn').click(); await p.click('.menu-list [data-cmd="findHold"]');
+      await p.waitForSelector('#dlg[open] #findName');
+      // кнопку у поля ставит разметка поля (span.iso-field); если её ещё нет — добавляем так же, как она выглядит там
+      await p.evaluate(() => {
+        if (document.querySelector('.iso-pt[data-pt-for="findName"]')) return;
+        const f = document.getElementById('findName'), w = document.createElement('span');
+        w.className = 'iso-field'; f.replaceWith(w); w.appendChild(f);
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'iso-pt'; b.dataset.ptFor = 'findName'; b.hidden = true; w.appendChild(b);
+      });
+      await p.waitForSelector('.iso-pt[data-pt-for="findName"]:not([hidden])');
+    };
+    const fieldVal = () => p.$eval('#findName', (e) => e.value);
+    await openFind();
+    const before = await fieldVal();
+    await p.click('.iso-pt[data-pt-for="findName"]');
+    await p.waitForSelector('#ptDlg[open] .pt-grid');
+    check(await p.$eval('#dlg', (d) => d.open), 'окно инструмента остаётся открытым под таблицей');
+    const en = await p.$$eval('#ptDlg .pt-el:not(:disabled)', (a) => a.map((e) => e.dataset.sym));
+    check(en.includes('Sr') && en.includes('Co') && !en.includes('Fe') && !en.includes('H'), 'доступны только элементы расчёта: ' + en.join(' '));
+    check(await p.$eval('#ptDlg .pt-iso-btn.picked b', (e) => e.textContent) === before, 'текущее значение поля выбрано: ' + before);
+    if (OUT) await (await p.$('#ptDlg')).screenshot({ path: path.join(OUT, 'ptable-pick.png') });
+    // выбрать Sr-90 → Готово
+    await p.click('#ptDlg .pt-el[data-sym="Sr"]');
+    await p.click('#ptDlg [data-add="Sr-90"]');
+    check(await p.$eval('#ptDlg [data-add="Sr-90"]', (e) => e.getAttribute('aria-pressed') === 'true') && /Выбран Sr-90/.test(await p.textContent('#ptDlg #ptStatus')), 'Sr-90 выбран');
+    await p.click('#ptDlg button[value="ok"]'); await p.waitForTimeout(80);
+    check(!(await p.$eval('#ptDlg', (d) => d.open)) && await p.$eval('#dlg', (d) => d.open) && await fieldVal() === 'Sr-90', '«Готово» подставило Sr-90, окно инструмента открыто');
+    // повторное нажатие снимает выбор
+    await p.click('.iso-pt[data-pt-for="findName"]'); await p.waitForSelector('#ptDlg[open]');
+    await p.click('#ptDlg [data-add="Sr-90"]');
+    check(await p.$eval('#ptDlg [data-add="Sr-90"]', (e) => e.getAttribute('aria-pressed') === 'false') && !(await p.$('#ptDlg .pt-iso-btn.picked')) && /Выбор снят/.test(await p.textContent('#ptDlg #ptStatus')), 'повторно — выбор снят');
+    const isSelect = await p.$eval('#findName', (e) => e.tagName === 'SELECT');
+    await p.click('#ptDlg button[value="ok"]'); await p.waitForTimeout(80);
+    check(isSelect ? await fieldVal() === 'Sr-90' : await fieldVal() === '', isSelect ? 'список без пустого варианта не очищается' : 'снятый выбор — поле пустое');
+    // «Отмена» и Esc ничего не меняют и закрывают только таблицу
+    const cur = await fieldVal();
+    await p.click('.iso-pt[data-pt-for="findName"]'); await p.waitForSelector('#ptDlg[open]');
+    await p.click('#ptDlg .pt-el[data-sym="Co"]'); await p.click('#ptDlg [data-add="Co-60"]');
+    await p.click('#ptDlg .dlg-foot button[value="cancel"]'); await p.waitForTimeout(80);
+    check(await fieldVal() === cur && await p.$eval('#dlg', (d) => d.open), '«Отмена» не меняет поле');
+    await p.click('.iso-pt[data-pt-for="findName"]'); await p.waitForSelector('#ptDlg[open]');
+    await p.fill('#ptDlg #ptSearch', 'кобальт-60'); await p.press('#ptDlg #ptSearch', 'Enter'); await p.waitForTimeout(80);
+    check(await p.$eval('#ptDlg', (d) => d.open) && await p.$eval('#ptDlg [data-add="Co-60"]', (e) => e.classList.contains('picked')), 'Enter в поиске выбирает «кобальт-60», окно открыто');
+    await p.keyboard.press('Escape'); await p.waitForTimeout(80);
+    check(!(await p.$eval('#ptDlg', (d) => d.open)) && await p.$eval('#dlg', (d) => d.open) && await fieldVal() === cur, 'Esc закрывает только таблицу, поле прежнее');
+    // двойной щелчок — выбрать и закрыть
+    await p.click('.iso-pt[data-pt-for="findName"]'); await p.waitForSelector('#ptDlg[open]');
+    await p.click('#ptDlg .pt-el[data-sym="Co"]'); await p.dblclick('#ptDlg [data-add="Co-60"]'); await p.waitForTimeout(80);
+    check(!(await p.$eval('#ptDlg', (d) => d.open)) && await fieldVal() === 'Co-60', 'двойной щелчок: Co-60 выбран, таблица закрыта');
+    await p.keyboard.press('Escape'); await p.waitForTimeout(80);
+
+    // 4. закреплённые данные: кнопка недоступна
     await p.click('#calcBtn'); await p.waitForTimeout(200);
     check(await p.$eval('#ptableBtn', (e) => e.disabled), 'после «Рассчитать» кнопка недоступна');
     const fromMenu = async () => {
@@ -114,7 +180,7 @@ const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fa
     viaMenu = await fromMenu();
     check(viaMenu.grid, 'меню Данные → Таблица Менделеева открывает таблицу');
 
-    // 4. телефон
+    // 5. телефон
     await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(150);
     const btn = await p.evaluate(() => { const r = document.getElementById('ptableBtn').getBoundingClientRect(); return { r: r.right, vw: innerWidth, sw: document.documentElement.scrollWidth }; });
     check(btn.r <= btn.vw && btn.sw <= btn.vw, `на телефоне кнопка в экране (${Math.round(btn.r)} из ${btn.vw})`);
