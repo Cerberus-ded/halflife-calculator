@@ -135,8 +135,8 @@
     const errors = [];
     let added = 0;
     for (const p of parts) {
-      const name = C.normalizeName(p);
-      if (!name) { errors.push(`«${p}» нет в базе нуклидов.`); continue; }
+      const name = C.normalizeName(p) || nameFromWords(p);
+      if (!name) { errors.push(unknownText(p)); continue; }
       if (DB[name][0] == null) { errors.push(`${name} стабилен — у него нет распада.`); continue; }
       if (state.roots.includes(name)) { errors.push(`${name} уже добавлен.`); continue; }
       const inSet = state.set.find((x) => x.name === name);
@@ -161,6 +161,142 @@
     renderInput();
   }
 
+  // ---------- названия элементов и таблица Менделеева ----------
+  const EL = window.HLElements || null;
+  /** «цезий-137», «137 цезий», «технеций-99м» -> Cs-137, Tc-99m (или null). */
+  function nameFromWords(p) {
+    const r = EL && EL.parse(p);
+    return r && r.a ? C.normalizeName(r.sym + '-' + r.a + r.meta) : null;
+  }
+  /** Радиоактивные изотопы элемента из базы, по массовому числу. */
+  function isotopesOf(sym) {
+    const key = (n) => { const m = n.match(/^[A-Za-z]+-(\d+)(\w*)$/); return m ? +m[1] + (m[2] ? 0.5 : 0) : 0; };
+    return Object.keys(DB).filter((n) => DB[n][0] != null && n.slice(0, n.indexOf('-')) === sym).sort((a, b) => key(a) - key(b));
+  }
+  function elementRu(sym) { const e = EL && EL.bySym[sym]; return e ? e.ru : sym; }
+  /** Понятное сообщение, если изотоп не распознан. */
+  function unknownText(p) {
+    const r = EL && EL.parse(p);
+    if (!r) return `«${p}» нет в базе нуклидов.`;
+    const iso = isotopesOf(r.sym);
+    const ru = elementRu(r.sym);
+    if (!iso.length) return `У элемента ${ru} (${r.sym}) в базе нет радиоактивных изотопов.`;
+    const longest = iso.slice().sort((a, b) => DB[b][0] - DB[a][0]).slice(0, 3);
+    if (!r.a) return `${ru}: какой изотоп? Укажите массовое число, например ${longest.join(', ')}. Все изотопы — кнопка «Таблица Менделеева».`;
+    return `Изотопа ${r.sym}-${r.a}${r.meta} нет в базе. Есть, например: ${longest.join(', ')}.`;
+  }
+
+  async function cmdPtable(start) {
+    if (!EL) return;
+    if (state.locked) { dialog({ title: 'Таблица Менделеева', html: '<p>Сейчас данные закреплены. Нажмите «Изменить данные», чтобы добавить изотоп.</p>' }); return; }
+    const avail = {};
+    for (const n of Object.keys(DB)) if (DB[n][0] != null) { const s = n.slice(0, n.indexOf('-')); avail[s] = (avail[s] || 0) + 1; }
+    const inUse = new Set(state.roots.map((r) => r.slice(0, r.indexOf('-'))));
+    let cells = '';
+    for (const e of EL.list) {
+      const p = EL.pos(e.z), n = avail[e.sym] || 0;
+      const t = n ? `${e.ru}, Z = ${e.z}. Радиоактивных изотопов в базе: ${n}` : `${e.ru}, Z = ${e.z}. Нет в базе`;
+      cells += `<button type="button" class="pt-el${n ? '' : ' none'}${inUse.has(e.sym) ? ' used' : ''}" data-sym="${e.sym}" data-row="${p.row}" data-col="${p.col}"` +
+        ` style="grid-row:${p.row};grid-column:${p.col}" title="${esc(t)}" aria-label="${esc(t)}" tabindex="-1"${n ? '' : ' disabled'}>` +
+        `<small>${e.z}</small><b>${e.sym}</b></button>`;
+    }
+    cells += '<span class="pt-ph" style="grid-row:6;grid-column:3" aria-hidden="true">57–71</span><span class="pt-ph" style="grid-row:7;grid-column:3" aria-hidden="true">89–103</span>' +
+      '<span class="pt-flabel" style="grid-row:9;grid-column:1 / span 2">лантаноиды</span><span class="pt-flabel" style="grid-row:10;grid-column:1 / span 2">актиноиды</span>';
+    const p = dialog({
+      title: 'Таблица Менделеева', wide: true,
+      html: '<div class="pt-top"><input id="ptSearch" type="search" placeholder="Найти: цезий, Cs или 55" aria-label="Найти элемент" autocomplete="off" spellcheck="false">' +
+        '<p class="pt-help">Выберите элемент, затем изотоп — он добавится в расчёт. Можно выбрать несколько.</p></div>' +
+        `<div class="pt-wrap"><div class="pt-grid" role="group" aria-label="Элементы">${cells}</div></div>` +
+        '<div id="ptIso" class="pt-iso" aria-live="polite"></div><p id="ptStatus" class="pt-status" role="status"></p>',
+      buttons: [{ label: 'Готово', value: 'ok', primary: true }],
+    });
+    const body = $('#dlgBody'), grid = $('.pt-grid', body), search = $('#ptSearch'), isoBox = $('#ptIso'), status = $('#ptStatus');
+    let sel = null;
+    const cellOf = (sym) => $(`.pt-el[data-sym="${sym}"]`, grid);
+    const setStatus = (text, err) => { status.textContent = text || ''; status.classList.toggle('error', !!err); };
+    function renderIso(focusName) {
+      if (!sel) { isoBox.innerHTML = '<p class="pt-hint">Выберите элемент — здесь появятся его радиоактивные изотопы.</p>'; return; }
+      const e = EL.bySym[sel], iso = isotopesOf(sel);
+      const roots = new Set(state.roots), inSet = new Set(state.set.map((x) => x.name));
+      isoBox.innerHTML = `<h3>${esc(e.ru)} <span>${esc(e.sym)} · Z = ${e.z}</span></h3><div class="pt-iso-list">` + iso.map((n) => {
+        const added = roots.has(n), chain = !added && inSet.has(n);
+        const note = added ? 'добавлен' : chain ? 'уже в цепочке' : C.fmtHalfLife(DB[n][0]);
+        return `<button type="button" class="pt-iso-btn${added ? ' added' : ''}${chain ? ' chain' : ''}" data-add="${esc(n)}"${added ? ' aria-pressed="true"' : ''}>` +
+          `<b>${esc(n)}</b><span>${esc(note)}</span></button>`;
+      }).join('') + '</div>';
+      if (focusName) { const b = $(`[data-add="${focusName}"]`, isoBox); if (b) b.focus(); }
+    }
+    function select(sym, focusCell) {
+      const c = cellOf(sym); if (!c || c.disabled) return;
+      $$('.pt-el.sel', grid).forEach((x) => { x.classList.remove('sel'); x.tabIndex = -1; x.removeAttribute('aria-pressed'); });
+      c.classList.add('sel'); c.tabIndex = 0; c.setAttribute('aria-pressed', 'true');
+      sel = sym; renderIso();
+      if (focusCell) c.focus();
+      c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    function add(n) {
+      if (state.roots.includes(n)) { setStatus(`${n} уже добавлен.`); return; }
+      addRoots(n);
+      const ok = state.roots.includes(n);
+      if (ok) {
+        setStatus(`${n} добавлен в расчёт. Можно выбрать ещё или нажать «Готово».`);
+        const c = cellOf(sel); if (c) c.classList.add('used');
+      } else setStatus(($('#rootError') || {}).textContent || `${n} не добавлен.`, true);
+      renderIso(n);
+    }
+    // первая клетка в порядке обхода — фокусируемая
+    const first = cellOf(state.roots.length ? state.roots[state.roots.length - 1].split('-')[0] : 'H') || cellOf('H');
+    if (first) first.tabIndex = 0;
+    renderIso();
+    const onClick = (ev) => {
+      const c = ev.target.closest('.pt-el'); if (c && !c.disabled) { select(c.dataset.sym); setStatus(''); return; }
+      const b = ev.target.closest('[data-add]'); if (b) add(b.dataset.add);
+    };
+    const onGridKey = (ev) => {
+      const c = ev.target.closest('.pt-el'); if (!c) return;
+      const dir = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[ev.key];
+      if (!dir) { if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); const all = $$('.pt-el:not(:disabled)', grid); const t = ev.key === 'Home' ? all[0] : all[all.length - 1]; t.tabIndex = 0; c.tabIndex = -1; t.focus(); } return; }
+      ev.preventDefault();
+      const r = +c.dataset.row, col = +c.dataset.col;
+      const all = $$('.pt-el:not(:disabled)', grid).map((x) => ({ x, r: +x.dataset.row, c: +x.dataset.col }));
+      let cand;
+      if (dir[0] === 0) {
+        cand = all.filter((o) => o.r === r && (dir[1] > 0 ? o.c > col : o.c < col)).sort((a, b) => (dir[1] > 0 ? a.c - b.c : b.c - a.c))[0];
+      } else {
+        const rows = [...new Set(all.map((o) => o.r))].filter((x) => (dir[0] > 0 ? x > r : x < r)).sort((a, b) => (dir[0] > 0 ? a - b : b - a));
+        for (const rr of rows) { const inRow = all.filter((o) => o.r === rr); if (inRow.length) { cand = inRow.sort((a, b) => Math.abs(a.c - col) - Math.abs(b.c - col))[0]; break; } }
+      }
+      if (cand) { c.tabIndex = -1; cand.x.tabIndex = 0; cand.x.focus(); }
+    };
+    const onSearch = () => {
+      const q = search.value.trim();
+      $$('.pt-el.hit', grid).forEach((x) => x.classList.remove('hit'));
+      if (!q) { setStatus(''); return; }
+      const r = EL.parse(q);
+      const lq = q.toLowerCase().replace(/ё/g, 'е');
+      const hits = r ? [EL.bySym[r.sym]] : EL.list.filter((e) => String(e.z) === q || e.sym.toLowerCase() === lq || e.ru.toLowerCase().replace(/ё/g, 'е').startsWith(lq));
+      const ok = hits.filter((e) => avail[e.sym]);
+      ok.forEach((e) => { const c = cellOf(e.sym); if (c) c.classList.add('hit'); });
+      if (ok.length) select(ok[0].sym);
+      setStatus(ok.length ? '' : 'Не найдено. Введите название элемента (цезий), символ (Cs) или номер (55).', !ok.length);
+    };
+    const onSearchKey = (ev) => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const name = C.normalizeName(search.value) || nameFromWords(search.value);
+      if (name && DB[name][0] != null) { if (name.split('-')[0] !== sel) select(name.split('-')[0]); add(name); return; }
+      const b = $('.pt-iso-btn', isoBox); if (b) b.focus();
+    };
+    body.addEventListener('click', onClick);
+    grid.addEventListener('keydown', onGridKey);
+    search.addEventListener('input', onSearch);
+    search.addEventListener('keydown', onSearchKey);
+    if (start && EL.symbolOf(start)) { search.value = start; onSearch(); }
+    search.focus();
+    await p;
+    body.removeEventListener('click', onClick);
+  }
+
   // ---------- панель ввода ----------
   function fillNuclideList() {
     const dl = $('#nuclideList'); if (!dl) return;
@@ -170,7 +306,8 @@
     const frag = document.createDocumentFragment();
     for (const n of names) {
       const o = document.createElement('option');
-      o.value = n; o.label = C.fmtHalfLife(DB[n][0]);
+      const ru = EL && EL.bySym[n.slice(0, n.indexOf('-'))];
+      o.value = n; o.label = (ru ? ru.ru + '-' + n.slice(n.indexOf('-') + 1) + ' · ' : '') + C.fmtHalfLife(DB[n][0]);
       frag.appendChild(o);
     }
     dl.innerHTML = ''; dl.appendChild(frag);
@@ -473,7 +610,7 @@
     const panel = $('#inputPanel');
     if (panel) panel.classList.toggle('locked', on);
     document.body.classList.toggle('locked', on);
-    $$('#inputTable input, #rootInput, #addRootBtn, #hold, #holdUnit, #holdExtra, #holdDatesBtn, #actUnit, #rootChips .chip-x').forEach((e) => { e.disabled = on; });
+    $$('#inputTable input, #rootInput, #addRootBtn, #ptableBtn, #hold, #holdUnit, #holdExtra, #holdDatesBtn, #actUnit, #rootChips .chip-x').forEach((e) => { e.disabled = on; });
     $$('#inputTable td.t12[data-edit]').forEach((td) => { td.tabIndex = on ? -1 : 0; td.setAttribute('aria-disabled', on ? 'true' : 'false'); });
     show($('#calcBtn'), !on);
     show($('#editBtn'), on);
@@ -1664,7 +1801,7 @@
   async function closeRequest() { if (await confirmDiscard()) { state.dirty = false; if (host && host.closeNow) host.closeNow(); } }
   const COMMANDS = {
     new: cmdNew, open: cmdOpen, save: () => cmdSave(false), saveAs: () => cmdSave(true), export: cmdExport,
-    data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout,
+    data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout, ptable: cmdPtable,
     calc, edit: unlock, preset: loadPreset, closeRequest,
     openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) loadText(f.text, f.name, { path: f.path }); }); },
     tab: selectTab,
@@ -1731,6 +1868,8 @@
     if (rootInput) rootInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRoots(rootInput.value); } });
     if (rootInput) rootInput.addEventListener('input', () => setRootError(''));
     const addBtn = $('#addRootBtn'); if (addBtn) addBtn.addEventListener('click', () => addRoots(rootInput.value));
+    const ptBtn = $('#ptableBtn');
+    if (ptBtn) { if (!EL) ptBtn.hidden = true; else ptBtn.addEventListener('click', () => { const v = rootInput.value.trim(); cmdPtable(v && EL.parse(v) && !EL.parse(v).a ? v : ''); }); }
     const chips = $('#rootChips');
     if (chips) chips.addEventListener('click', (e) => { const b = e.target.closest('[data-remove]'); if (b && !b.disabled) removeRoot(b.dataset.remove); });
 
