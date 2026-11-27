@@ -1222,9 +1222,25 @@
       form.addEventListener('keydown', onKey);
       dlg.addEventListener('close', onClose);
       dlg.showModal();
+      keyboardScroll(body);
       const f = opts.focus && $(opts.focus, dlg);
       if (f) { f.focus(); if (f.select) f.select(); }
     });
+  }
+  // Прокручиваемую область без кнопок и полей нельзя пролистать с клавиатуры: даём ей фокус (Tab, затем стрелки).
+  const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]';
+  let tabPressed = false;
+  function keyboardScroll(body) {
+    const needsFocus = (el) => (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && !el.querySelector(FOCUSABLE);
+    $$('.table-wrap', body).forEach((el) => { if (needsFocus(el)) el.tabIndex = 0; });
+    // Тело окна получает фокус при открытии (autofocus, без рамки); рамку показываем, только когда до него дошли клавишей Tab.
+    body.tabIndex = needsFocus(body) ? 0 : -1;
+    if (body._kbdBound) return;
+    body._kbdBound = true;
+    document.addEventListener('keydown', (e) => { tabPressed = e.key === 'Tab'; }, true);
+    document.addEventListener('pointerdown', () => { tabPressed = false; }, true);
+    body.addEventListener('focus', () => body.classList.toggle('kbd-focus', tabPressed));
+    body.addEventListener('blur', () => body.classList.remove('kbd-focus'));
   }
   function errorDlg(title, e) {
     const msg = e && e.message ? e.message : String(e || '');

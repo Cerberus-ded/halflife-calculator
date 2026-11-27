@@ -4,7 +4,9 @@
  * window.HLSaveHook(blob, name, mime) вместо собственного способа сохранения. */
 (function () {
   'use strict';
-  var ready = (window.claude && typeof window.claude.use === 'function')
+  // Обёртка claude.ai не задаёт язык страницы; без него экранные дикторы читают русский текст английским голосом.
+  if (!document.documentElement.lang) document.documentElement.lang = 'ru';
+  var ready =(window.claude && typeof window.claude.use === 'function')
     ? Promise.resolve(window.claude.use('downloads')).catch(function () { return null; })
     : Promise.resolve(null);
   // Расширения, которые принимает claude.ai; остальные получают безопасный хвост.
