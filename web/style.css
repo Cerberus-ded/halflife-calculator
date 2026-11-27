@@ -830,7 +830,7 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .answer summary .chev { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--accent-ink); transition: transform .15s; }
 .answer details[open] summary .chev { transform: rotate(90deg); }
 .answer-title { min-width: 0; font-weight: 600; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
-.answer-title small { display: block; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+.answer-title small { display: block; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
 .answer-copy { position: absolute; top: 9px; right: 10px; height: 30px; padding: 0 10px; gap: 6px; font-size: 13px; background: var(--pane); }
 .answer-copy svg { width: 14px; height: 14px; }
 .answer ul { margin: 0; padding: 0 14px 12px 42px; display: grid; gap: 4px; }
