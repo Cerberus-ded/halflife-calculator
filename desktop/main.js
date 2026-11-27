@@ -62,6 +62,7 @@ function buildMenu() {
     ] },
     { label: '&Данные', submenu: [
       item('Ядерные данные…', 'data'),
+      item('Таблица Менделеева…', 'ptable'),
       item('Сбросить правки T½', 'resetOverrides'),
       item('Обновить данные IAEA…', 'updateData'),
       { type: 'separator' },

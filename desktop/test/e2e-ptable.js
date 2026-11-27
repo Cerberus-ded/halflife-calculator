@@ -100,8 +100,19 @@ const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fa
     await p.fill('#inputTable tr:has-text("Cs-137") input', '1000');
     await p.click('#calcBtn'); await p.waitForTimeout(200);
     check(await p.$eval('#ptableBtn', (e) => e.disabled), 'после «Рассчитать» кнопка недоступна');
+    const fromMenu = async () => {
+      await p.click('.menu-btn:has-text("Данные")'); await p.click('.menu-list [data-cmd="ptable"]');
+      await p.waitForSelector('#dlg[open]'); await p.waitForTimeout(100);
+      const r = await p.evaluate(() => ({ grid: !!document.querySelector('#dlg .pt-grid'), text: document.getElementById('dlgBody').textContent }));
+      await p.keyboard.press('Escape'); await p.waitForTimeout(100);
+      return r;
+    };
+    let viaMenu = await fromMenu();
+    check(!viaMenu.grid && /закреплены/.test(viaMenu.text), 'меню Данные → Таблица Менделеева при закреплённых данных объясняет, что делать');
     await p.click('#editBtn'); await p.waitForTimeout(100);
     check(!(await p.$eval('#ptableBtn', (e) => e.disabled)), '«Изменить данные» — снова доступна');
+    viaMenu = await fromMenu();
+    check(viaMenu.grid, 'меню Данные → Таблица Менделеева открывает таблицу');
 
     // 4. телефон
     await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(150);
