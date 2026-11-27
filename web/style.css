@@ -864,4 +864,34 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .mass-out p:last-child { margin-bottom: 0; }
 @media (max-width: 600px) {
   .mass-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+/* ---------- Схема распада ---------- */
+.chip-scheme {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 14px 0 11px; border-radius: 17px;
+  background: transparent; color: var(--ink-2); border: 1px solid var(--rule-strong);
+  font-size: 14.5px; font-weight: 500;
+}
+.chip-scheme:hover { background: var(--bar-2); color: var(--ink); }
+.chip-scheme svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.scheme-note { margin: 0 0 12px; color: var(--ink-2); font-size: 14px; }
+.scheme-wrap {
+  overflow: auto; max-height: min(62dvh, 640px);
+  border: 1px solid var(--card-line); border-radius: 10px; background: var(--pane);
+  -webkit-overflow-scrolling: touch;
+}
+.scheme-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.scheme-wrap svg { display: block; margin: 0 auto; max-width: none; }
+.scheme .sch-title { font: 600 13px var(--font-ui); fill: var(--ink-2); }
+.scheme .sch-edge { fill: none; stroke: var(--rule-strong); stroke-width: 1.4; }
+.scheme .sch-head { fill: var(--rule-strong); }
+.scheme .sch-lbl { font: 11px var(--font-ui); fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+.scheme .sch-box { fill: var(--pane); stroke: var(--rule-strong); stroke-width: 1.2; }
+.scheme .sch-node.has-a .sch-box { fill: var(--accent-soft); stroke: var(--accent-line); }
+.scheme .sch-node.stable .sch-box { fill: var(--bar); stroke: var(--rule-strong); stroke-dasharray: 4 3; }
+.scheme .sch-node.target .sch-box { stroke: var(--accent); stroke-width: 2.4; }
+.scheme .sch-name { font: 600 14px var(--font-ui); fill: var(--ink); }
+.scheme .sch-sub { font: 11.5px var(--font-ui); fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+.scheme .sch-act { font: 600 11.5px var(--font-ui); fill: var(--accent-ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .scheme-wrap { max-height: 46dvh; } /* чтобы на телефоне прокручивалась только схема, а не весь диалог */
 }

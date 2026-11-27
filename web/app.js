@@ -11,6 +11,7 @@
   const F = window.HLFormulas || null;
   const TL = window.HLTools || null; // чистота, подбор выдержки, погрешность, IAEA, .docx
   const AM = window.HLAmount || null; // массы нуклидов, масса ↔ активность
+  const SCH = window.HLScheme || null; // картинка схемы распада (SVG)
   const DB = window.NUCDB || {};
   const host = window.hostBridge || null; // Electron
   const android = window.AndroidHost || null; // Android WebView
@@ -183,7 +184,9 @@
   function renderChips() {
     const box = $('#rootChips'); if (!box) return;
     box.innerHTML = state.roots.map((r) =>
-      `<span class="chip">${esc(r)} <button type="button" class="chip-x" data-remove="${esc(r)}" title="Убрать цепочку ${esc(r)}" aria-label="Убрать ${esc(r)}"${state.locked ? ' disabled' : ''}>×</button></span>`).join('');
+      `<span class="chip">${esc(r)} <button type="button" class="chip-x" data-remove="${esc(r)}" title="Убрать цепочку ${esc(r)}" aria-label="Убрать ${esc(r)}"${state.locked ? ' disabled' : ''}>×</button></span>`).join('') +
+      (SCH && state.roots.length ? '<button type="button" class="chip-scheme" id="schemeBtn" data-cmd="scheme" title="Картинка цепочки: кто во что распадается, доли ветвлений, T½ и активности">' +
+        '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="1.5" width="6" height="4" rx="1"/><rect x="1" y="10.5" width="6" height="4" rx="1"/><rect x="9" y="10.5" width="6" height="4" rx="1"/><path d="M8 5.5v2.5M4 10.5V8h8v2.5"/></svg>Схема распада</button>' : '');
   }
 
   function renderInputTable() {
@@ -1779,6 +1782,82 @@
     if (inp) { inp.focus(); if (inp.select) inp.select(); }
   }
 
+  // ---------- схема распада ----------
+  /** Данные для картинки: набор, цепочки и подписи активностей (результат на основной срок или A₀ из таблицы). */
+  function schemeData() {
+    const r = state.result;
+    if (r && r.set && r.rows) {
+      const times = r.times;
+      const mainIdx = times ? Math.max(0, times.findIndex((t) => t.main)) : 0;
+      const f = r.actF || 1, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
+      const values = r.rows.map((x, i) => {
+        if (x.stable) return x.N > 0 ? 'N = ' + fmt(times ? times[mainIdx].N[i] : x.N, 3) : '';
+        const A = times ? times[mainIdx].A[i] : x.A;
+        return A > 0 ? 'A = ' + fmt(A / f, 3) + ' ' + u : '';
+      });
+      return { set: r.set, roots: r.roots, values, note: `Активность через ${r.holdText}${times && times.length > 1 ? ' (основной срок)' : ''}.` };
+    }
+    const u = ACT_UNITS[actUnit()].ru;
+    let any = false;
+    const values = state.set.map((x) => {
+      if (!(x.lambda > 0)) return '';
+      const v = parseNum(state.activities[x.name]);
+      if (v === null || isNaN(v) || !(v > 0)) return '';
+      any = true; return 'A₀ = ' + fmt(v, 3) + ' ' + u;
+    });
+    return { set: state.set, roots: state.roots, values, note: any ? 'Начальная активность из таблицы; после расчёта здесь будет активность через выдержку.' : '' };
+  }
+  function schemeSvg(d, standalone) {
+    return SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '', standalone }).svg;
+  }
+  /** PNG из SVG (для вставки в Word и презентации), масштаб 2×. */
+  function svgToPng(svgText, w, h) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+      img.onload = () => {
+        try {
+          const k = 2, cv = document.createElement('canvas');
+          cv.width = Math.ceil(w * k); cv.height = Math.ceil(h * k);
+          const g = cv.getContext('2d'); g.scale(k, k); g.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          cv.toBlob((b) => (b ? resolve(b) : reject(new Error('не удалось получить PNG'))), 'image/png');
+        } catch (e) { URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('не удалось нарисовать схему')); };
+      img.src = url;
+    });
+  }
+  async function cmdScheme() {
+    if (!SCH) return;
+    if (!state.roots.length) { await dialog({ title: 'Схема распада', html: '<p>Сначала добавьте изотоп: схема рисуется для выбранных цепочек.</p>' }); return; }
+    const d = schemeData();
+    const pic = SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '' });
+    const n = d.set.length, nb = pic.layout.edges.filter((e) => e.br < 0.9995).length;
+    const html = `<p class="scheme-note">${esc(n + ' ' + plural(n, ['изотоп', 'изотопа', 'изотопов']))}` +
+      (nb ? `, ${esc(nb + ' ' + plural(nb, ['ветвь', 'ветви', 'ветвей']))} с долей меньше 100 %` : '') + '. ' +
+      `Подпись у стрелки — тип распада и доля ветвления. ${esc(d.note)}</p>` +
+      `<div class="scheme-wrap" tabindex="0" aria-label="Схема распада, прокручивается">${pic.svg}</div>`;
+    const base = baseName() + '-схема';
+    await dialog({
+      title: 'Схема распада', html, wide: true,
+      buttons: [{ label: 'Закрыть', value: 'ok', primary: true }, { label: 'Скачать SVG', value: 'svg' }, { label: 'Скачать PNG', value: 'png' }],
+      validate: (v) => {
+        if (v === 'svg') {
+          saveBlob(new Blob([schemeSvg(d, true)], { type: 'image/svg+xml' }), base + '.svg', 'image/svg+xml').catch((e) => errorDlg('Ошибка сохранения', e));
+          return false;
+        }
+        if (v === 'png') {
+          svgToPng(schemeSvg(d, true), pic.width, pic.height)
+            .then((b) => saveBlob(b, base + '.png', 'image/png'))
+            .catch((e) => errorDlg('Ошибка сохранения', e));
+          return false;
+        }
+        return true;
+      },
+    });
+  }
+
   // ---------- обновление данных IAEA ----------
   const IAEA_URL = 'https://www-nds.iaea.org/relnsd/v1/data?fields=ground_states&nuclides=all';
   const IAEA_KEY = 'halflife.iaeaUpdate';
@@ -2029,6 +2108,7 @@
     protocol: cmdProtocol, print: cmdPrint, findHold: cmdFindHold, uncertainty: cmdUncertainty, updateData: cmdUpdateData,
     generator: cmdGenerator,
     mass: cmdMass,
+    scheme: cmdScheme,
   };
   function run(cmd, arg) {
     const f = COMMANDS[cmd];
