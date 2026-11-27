@@ -960,3 +960,47 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
   .recent-time { grid-column: 1; grid-row: auto; }
 }
 @media print { .draft-note { display: none !important; } }
+
+/* ---------- Таблица Менделеева (выбор изотопа) ---------- */
+.ptable-btn { height: 40px; padding: 0 14px; gap: 8px; font-weight: 600; }
+.ptable-btn svg { width: 16px; height: 16px; }
+.pt-top { display: grid; gap: 6px; margin-bottom: 12px; }
+#ptSearch { width: min(100%, 360px); }
+.pt-help { margin: 0; color: var(--ink-2); font-size: 14.5px; }
+.pt-wrap { overflow-x: auto; padding: 2px 2px 6px; margin: 0 -2px; }
+.pt-grid { display: grid; grid-template-columns: repeat(18, minmax(36px, 1fr)); grid-template-rows: repeat(7, auto) 8px auto auto;
+  gap: 3px; min-width: 690px; }
+.pt-el { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  height: 42px; min-height: 0; padding: 0; border: 1px solid var(--rule); border-radius: 6px; background: var(--pane); color: var(--ink); line-height: 1.1; }
+.pt-el small { font-size: 9.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pt-el b { font-size: 14.5px; font-weight: 600; }
+.pt-el:not(:disabled):hover { background: var(--accent-soft); border-color: var(--accent-line); }
+.pt-el.none { background: transparent; border-style: dashed; opacity: .45; }
+.pt-el.used::after { content: ""; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.pt-el.hit { border-color: var(--accent); }
+.pt-el.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.pt-el.sel small { color: inherit; opacity: .8; }
+.pt-el.sel.used::after { background: var(--accent-on); }
+.pt-ph { display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--ink-3);
+  border: 1px dashed var(--rule); border-radius: 6px; }
+.pt-flabel { align-self: center; justify-self: end; padding-right: 6px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.pt-iso { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); min-height: 74px; }
+.pt-iso h3 { margin: 0 0 10px; font-size: 16px; }
+.pt-iso h3 span { margin-left: 6px; font-weight: 400; color: var(--ink-2); font-size: 14px; }
+.pt-hint { margin: 6px 0; color: var(--ink-2); }
+.pt-iso-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow-y: auto; padding: 1px; }
+.pt-iso-btn { display: inline-flex; align-items: baseline; gap: 8px; height: auto; min-height: 36px; padding: 6px 12px; border-radius: 999px; font-weight: 400; }
+.pt-iso-btn b { font-weight: 600; }
+.pt-iso-btn span { color: var(--ink-2); font-size: 13.5px; }
+.pt-iso-btn.added { background: var(--ok-soft); border-color: var(--ok-line); }
+.pt-iso-btn.added span { color: var(--ok); }
+.pt-iso-btn.chain span { color: var(--ink-3); }
+.pt-status { min-height: 1.4em; margin: 10px 0 0; font-size: 14.5px; color: var(--ok); }
+.pt-status.error { color: var(--err); }
+.pt-status:empty { display: none; }
+@media (max-width: 560px) {
+  .pt-grid { grid-template-columns: repeat(18, 34px); min-width: 0; }
+  .pt-el { height: 40px; }
+  .pt-iso-list { max-height: 150px; }
+}
+@media print { .ptable-btn { display: none !important; } }
