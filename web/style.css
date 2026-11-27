@@ -844,6 +844,8 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 @media (max-width: 600px) {
   .gen-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .gen-chart { height: 180px; }
+}
+
 /* ============ Масса и активность (окно «Данные → Масса и активность», столбец атомов/массы) ============ */
 .amount-btn {
   min-height: 0; height: auto; padding: 0; border: 0; background: none; box-shadow: none;
@@ -864,6 +866,8 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .mass-out p:last-child { margin-bottom: 0; }
 @media (max-width: 600px) {
   .mass-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+
 /* ---------- Схема распада ---------- */
 .chip-scheme {
   display: inline-flex; align-items: center; gap: 7px;
