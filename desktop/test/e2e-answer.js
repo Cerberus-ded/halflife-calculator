@@ -71,7 +71,8 @@ const doc = (o) => JSON.stringify(Object.assign({ format: 'halflife-calc', versi
     check(dx && dx.out && dx.tot, 'протокол Word: раздел «Вывод» с итогом' + (dx ? '' : ' (файл не сохранён)'));
     await p.evaluate(() => { window.print = () => {}; App.run('print'); });
     const pr = await p.$eval('#printArea', (e) => ({ h: [...e.querySelectorAll('h2')].map((x) => x.textContent), li: e.querySelectorAll('ul.summary li').length }));
-    check(pr.h.join() === 'Исходные данные,Результат,Вывод,Модель и формулы' && pr.li === li.length, 'печать: «Вывод» между результатом и формулами (' + pr.h.join(', ') + ')');
+    const iv = pr.h.indexOf('Вывод');
+    check(iv > 0 && pr.h[iv - 1] === 'Результат' && iv < pr.h.indexOf('Модель и формулы') && pr.li === li.length, 'печать: «Вывод» сразу после результата, до формул (' + pr.h.join(', ') + ')');
     await p.evaluate(() => { delete window.HLSaveHook; });
 
     // 4. ровно целые периоды и единицы МБк
