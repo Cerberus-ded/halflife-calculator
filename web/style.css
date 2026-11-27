@@ -824,7 +824,7 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .gen-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: center; margin: 12px 0; }
 .gen-grid > label { font-weight: 600; }
 .gen-grid .inp-unit { display: inline-flex; align-items: center; gap: 6px; }
-.gen-grid input[type="text"] { width: 110px; height: var(--ctl-h); text-align: right; }
+.gen-grid input[type="text"] { width: 140px; height: var(--ctl-h); text-align: right; }
 .gen-grid select { height: var(--ctl-h); }
 .gen-els-head { margin: 4px 0 6px !important; }
 .gen-els { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px 10px; margin: 0 0 10px; }
