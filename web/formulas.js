@@ -212,7 +212,7 @@
       for (const x of g.items) {
         const unit = x.lambda > 0 ? 'Bq' : 'atoms';
         let line = `printf("%-8s %16.6e ${unit}\\n", "${x.name}", A_${id(x)}(tk));`;
-        if (R) { const r = R[m.set.indexOf(x)]; line += `   # программа: ${nm(x.lambda > 0 ? r.A : r.N, 6)}`; }
+        if (R) { const r = R[m.set.indexOf(x)]; line += `   # программа: ${nm(x.lambda > 0 ? r.A : r.N, 10)}`; }
         L.push(line);
       }
     }

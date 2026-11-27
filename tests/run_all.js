@@ -1,10 +1,10 @@
 /* Все тесты по порядку. Запуск из папки halflife-app: node tests/run_all.js
- * Нужны: Node.js 18+, python3 с mpmath (эталон), numpy и scipy (проверка Python-вывода); pdflatex — по желанию. */
+ * Нужны: Node.js 18+, python3 с mpmath (эталон), numpy и scipy (проверка Python-вывода), sympy (проверка Maple); pdflatex — по желанию. */
 'use strict';
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const scripts = ['validate_db.js', 'check_presets.js', 'compare_reference.js', 'check_formulas.js', 'check_tools.js', 'check_generator.js', 'check_mass.js', 'check_scheme.js', 'check_backcalc.js', 'check_elements.js'];
+const scripts = ['validate_db.js', 'check_presets.js', 'compare_reference.js', 'check_formulas.js', 'check_tools.js', 'check_generator.js', 'check_mass.js', 'check_scheme.js', 'check_backcalc.js', 'check_elements.js', 'check_import.js', 'check_maple.js'];
 let failed = 0;
 // Сценарии интерфейса ветки «Код» (Playwright) — если файл и сам Playwright доступны.
 const e2e = path.join(__dirname, '..', 'desktop', 'test', 'e2e-web.js');
