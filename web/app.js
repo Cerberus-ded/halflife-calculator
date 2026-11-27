@@ -1710,7 +1710,9 @@
     }
     let formulas = '';
     if (F && F.text) { try { formulas = F.text(formulaModel()); } catch (e) { formulas = ''; } }
-    return { title: 'Протокол расчёта радиоактивного распада', when: new Date().toLocaleString('ru-RU'), info, inputs, rows, bold, over, purityLine, formulas, wide: head.length > 6 };
+    let summary = [];
+    try { summary = answerLines(state.result).map((l) => l.text); } catch (e) { summary = []; }
+    return { title: 'Протокол расчёта радиоактивного распада', when: new Date().toLocaleString('ru-RU'), info, inputs, rows, bold, over, purityLine, summary, formulas, wide: head.length > 6 };
   }
   async function cmdProtocol() {
     if (!state.result) { dialog({ title: 'Протокол расчёта', html: '<p>Сначала выполните расчёт.</p>' }); return; }
@@ -1724,6 +1726,7 @@
       { table: d.rows.map((row, i) => (d.over.includes(i) ? row.map((v) => ({ v, fill: 'FBE3E1' })) : row)), header: true, boldRows: d.bold,
         alignRight: d.rows[0].map((_, i) => i).filter((i) => i > 0) }];
     if (d.purityLine) blocks.push({ p: d.purityLine, bold: true });
+    if (d.summary.length) blocks.push({ h2: 'Вывод' }, ...d.summary.map((t) => ({ p: '• ' + t })));
     blocks.push({ h2: 'Модель и формулы' });
     if (d.formulas) blocks.push({ mono: d.formulas });
     blocks.push({ p: '' }, { p: 'Расчёт выполнил: ______________________    Дата: ____________' }, { p: 'Проверил: ______________________    Дата: ____________' });
@@ -1748,6 +1751,7 @@
       `<h2>Исходные данные</h2>${tbl(d.info)}<p><b>Начальные активности</b> (остальные изотопы — 0):</p>${tbl(d.inputs, { header: true, num: 3 })}` +
       `<h2>Результат</h2>${tbl(d.rows, { header: true, bold: d.bold, over: d.over, num: 1 })}` +
       (d.purityLine ? `<p><b>${esc(d.purityLine)}</b></p>` : '') +
+      (d.summary.length ? `<h2>Вывод</h2><ul class="summary">${d.summary.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '') +
       (d.formulas ? `<h2>Модель и формулы</h2><pre>${esc(d.formulas)}</pre>` : '') +
       '<div class="sign"><div>Расчёт выполнил: ______________________ Дата: ____________</div><div>Проверил: ______________________ Дата: ____________</div></div>';
     $('#printArea').innerHTML = html;
