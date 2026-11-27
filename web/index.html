@@ -52,6 +52,7 @@
         <hr>
         <button type="button" role="menuitem" data-cmd="findHold"><span>Подбор выдержки…</span></button>
         <button type="button" role="menuitem" data-cmd="uncertainty"><span>Погрешность результата…</span></button>
+        <button type="button" role="menuitem" data-cmd="mass"><span>Масса и активность…</span></button>
       </div>
     </div>
     <div class="menu">
@@ -267,7 +268,7 @@
 
       <div class="toolbar result-tools">
         <div class="toolbar-actions">
-          <label class="check atoms-toggle"><input type="checkbox" id="showAtoms"> Число атомов</label>
+          <label class="check atoms-toggle"><input type="checkbox" id="showAtoms"> Атомы и масса</label>
           <button id="exportBtn" type="button" data-needs-result disabled>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>Скачать в Excel</span>
@@ -367,6 +368,8 @@
 <script src="formulas.js"></script>
 <script src="xlsx.js"></script>
 <script src="tools.js"></script>
+<script src="masses.js"></script>
+<script src="amount.js"></script>
 <script src="presets.js"></script>
 <script src="help.js"></script>
 <script src="app.js"></script>
