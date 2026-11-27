@@ -44,7 +44,9 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     // ошибки
     await p.fill('#bcA', '-5'); await p.waitForTimeout(50);
     check(/больше нуля/.test(await out()) && await applyDisabled(), 'отрицательная активность: ' + await out());
-    await p.selectOption('#bcName', 'Bi-213'); await p.fill('#bcA', '1000'); await p.fill('#bcT', '0'); await p.waitForTimeout(50);
+    await p.fill('#bcA', '1000'); await p.fill('#bcName', 'Ra-226'); await p.waitForTimeout(50);
+    check(/Ra-226 нет в этом расчёте/.test(await out()) && await applyDisabled(), 'изотоп не из расчёта: ' + await out());
+    await p.fill('#bcName', 'висмут-213'); await p.fill('#bcA', '1000'); await p.fill('#bcT', '0'); await p.waitForTimeout(50);
     check(/ещё не образовался/.test(await out()) && await applyDisabled(), 'дочерний в момент 0: ' + await out());
 
     // дочерний изотоп и другие единицы: Bi-213 = 1 мКи через 2 сут
@@ -64,7 +66,7 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     await p.click('#calcBtn'); await p.waitForTimeout(250);
     await p.evaluate(() => { App.run('backCalc'); }); await p.waitForTimeout(150);
     check(await p.$eval('#bcFrom', (e) => e.value) === 'table', 'два родоначальника в таблице — по умолчанию их соотношение');
-    await p.selectOption('#bcName', 'Ra-225'); await p.fill('#bcA', '2E5'); await p.waitForTimeout(80);
+    await p.fill('#bcName', 'радий-225'); await p.fill('#bcA', '2E5'); await p.waitForTimeout(80);
     check(/^Начальные активности: Th-229 — .*; Th-228 — /.test(await out()), 'обе активности: ' + await out());
     await p.click('#dlg button[value="apply"]'); await p.waitForTimeout(200);
     const th9 = num(await a0('Th-229')), th8 = num(await a0('Th-228'));

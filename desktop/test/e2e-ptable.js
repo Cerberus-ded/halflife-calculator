@@ -42,8 +42,14 @@ const check = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fa
     check(/^Изотопа Cs-200 нет в базе\. Есть, например: Cs-135/.test(await rootErr()), 'нет такого изотопа: ' + await rootErr());
     await type('абв-12');
     check(await rootErr() === '«абв-12» нет в базе нуклидов.', 'неизвестное слово: ' + await rootErr());
-    const label = await p.$eval('#nuclideList option[value="Cs-137"]', (o) => o.label);
+    await p.fill('#rootInput', 'цезий 13');
+    const label = await p.$eval('.iso-sug:not([hidden]) .iso-opt[data-name="Cs-137"] span', (o) => o.textContent);
     check(/^Цезий-137 · 30,0\d лет$/.test(label), 'подсказка списка: ' + label);
+    await p.fill('#rootInput', 'актиний-22'); await p.waitForTimeout(50);
+    await p.click('.iso-sug:not([hidden]) .iso-opt[data-name="Ac-227"]'); await p.waitForTimeout(80);
+    check((await roots()).endsWith('Ac-227') && await p.inputValue('#rootInput') === '', 'щелчок по подсказке «Ac-227» добавляет цепочку: ' + await roots());
+    await p.fill('#rootInput', 'тор'); await p.press('#rootInput', 'ArrowDown'); await p.press('#rootInput', 'Enter'); await p.waitForTimeout(80);
+    check(/Th-\d+$/.test(await roots()), 'стрелка вниз и Enter выбирают первую подсказку: ' + await roots());
 
     // 2. окно «Таблица Менделеева»: из поля «цезий» — сразу цезий
     await p.fill('#rootInput', 'стронций');

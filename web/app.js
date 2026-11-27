@@ -173,27 +173,17 @@
 
   // ---------- названия элементов и таблица Менделеева ----------
   const EL = window.HLElements || null;
-  /** «цезий-137», «137 цезий», «технеций-99м» -> Cs-137, Tc-99m (или null). */
-  function nameFromWords(p) {
-    const r = EL && EL.parse(p);
-    return r && r.a ? C.normalizeName(r.sym + '-' + r.a + r.meta) : null;
-  }
-  /** Радиоактивные изотопы элемента из базы, по массовому числу. */
-  function isotopesOf(sym) {
-    const key = (n) => { const m = n.match(/^[A-Za-z]+-(\d+)(\w*)$/); return m ? +m[1] + (m[2] ? 0.5 : 0) : 0; };
-    return Object.keys(DB).filter((n) => DB[n][0] != null && n.slice(0, n.indexOf('-')) === sym).sort((a, b) => key(a) - key(b));
-  }
-  function elementRu(sym) { const e = EL && EL.bySym[sym]; return e ? e.ru : sym; }
-  /** Понятное сообщение, если изотоп не распознан. */
-  function unknownText(p) {
-    const r = EL && EL.parse(p);
-    if (!r) return `«${p}» нет в базе нуклидов.`;
-    const iso = isotopesOf(r.sym);
-    const ru = elementRu(r.sym);
-    if (!iso.length) return `У элемента ${ru} (${r.sym}) в базе нет радиоактивных изотопов.`;
-    const longest = iso.slice().sort((a, b) => DB[b][0] - DB[a][0]).slice(0, 3);
-    if (!r.a) return `${ru}: какой изотоп? Укажите массовое число, например ${longest.join(', ')}. Все изотопы — кнопка «Таблица Менделеева».`;
-    return `Изотопа ${r.sym}-${r.a}${r.meta} нет в базе. Есть, например: ${longest.join(', ')}.`;
+  // Распознавание названий («торий-229», «229 тория», «радий») и подсказки в полях — web/picker.js
+  const PK = window.HLPicker;
+  const nameFromWords = (p) => PK.nameFromWords(p);
+  const isotopesOf = (sym) => PK.isotopesOf(sym);
+  const elementRu = (sym) => PK.elementRu(sym);
+  const unknownText = (p) => PK.unknownText(p);
+  /** Поле выбора изотопа (одинаковая разметка во всех окнах; кнопку таблицы Менделеева подключает ptable.js). */
+  function isoField(id, value, attrs) {
+    return `<span class="iso-field"><input id="${id}" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" ` +
+      `value="${esc(value || '')}" placeholder="например, Ac-225 или актиний-225"${attrs || ''}>` +
+      `<button type="button" class="iso-pt" data-pt-for="${id}" hidden></button></span>`;
   }
 
   async function cmdPtable(start) {
@@ -308,19 +298,10 @@
   }
 
   // ---------- панель ввода ----------
-  function fillNuclideList() {
-    const dl = $('#nuclideList'); if (!dl) return;
-    const names = Object.keys(DB).filter((n) => DB[n][0] != null);
-    const key = (n) => { const m = n.match(/^([A-Za-z]+)-(\d+)(\w*)$/); return m ? [m[1], +m[2], m[3]] : [n, 0, '']; };
-    names.sort((a, b) => { const x = key(a), y = key(b); return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1] || (x[2] < y[2] ? -1 : 1); });
-    const frag = document.createDocumentFragment();
-    for (const n of names) {
-      const o = document.createElement('option');
-      const ru = EL && EL.bySym[n.slice(0, n.indexOf('-'))];
-      o.value = n; o.label = (ru ? ru.ru + '-' + n.slice(n.indexOf('-') + 1) + ' · ' : '') + C.fmtHalfLife(DB[n][0]);
-      frag.appendChild(o);
-    }
-    dl.innerHTML = ''; dl.appendChild(frag);
+  /** База нуклидов изменилась (обновление IAEA): обновить списки подсказок. */
+  function refreshPickers() {
+    if (PK.invalidate) PK.invalidate();
+    const ri = $('#rootInput'); if (ri && ri.isoPicker) ri.isoPicker.refresh();
   }
 
   function renderChips() {
@@ -754,12 +735,14 @@
     if (!r || !TL) return;
     const sel = $('#targetSel');
     const names = r.rows.filter((x) => !x.stable).map((x) => x.name);
+    state.targetNames = names;
+    if (!sel.isoPicker) PK.field(sel, { names: () => state.targetNames || [] });
     const key = names.join(',');
-    if (sel.dataset.key !== key) {
-      sel.innerHTML = '<option value="">— не выбран —</option>' + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
-      sel.dataset.key = key;
+    if (sel.dataset.key !== key) { sel.dataset.key = key; sel.isoPicker.refresh(); }
+    if (document.activeElement !== sel || !sel.value.trim()) {
+      sel.value = names.includes(state.target) ? state.target : '';
+      sel.classList.remove('invalid'); sel.removeAttribute('aria-invalid');
     }
-    sel.value = names.includes(state.target) ? state.target : '';
     const chk = $('#progenyChk'); if (chk) chk.checked = !!state.countProgeny;
     const out = $('#purityOut');
     if (!pl) { show(out, false); return; }
@@ -1957,7 +1940,7 @@
     const def = last || { name: names.includes(state.target) ? state.target : names.find((n) => A0[n] > 0) || names[0], type: 'le', le: '', ge: '', pur: '99,9' };
     const radio = (v, label) => `<span class="cond"><input type="radio" name="findType" value="${v}"${def.type === v ? ' checked' : ''}><span>${label}</span></span>`;
     const html = `<p>Считается по начальным активностям из таблицы и текущим T½.</p>` +
-      `<div class="find-grid"><label for="findName">Изотоп</label><select id="findName">${names.map((n) => `<option value="${esc(n)}"${n === def.name ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` +
+      `<div class="find-grid"><label for="findName">Изотоп</label>${isoField('findName', def.name)}</div>` +
       `<div class="find-conds" role="radiogroup" aria-label="Условие">` +
       `<label>${radio('le', 'спад: активность не больше')} <span class="cond-val"><input type="text" id="findLe" inputmode="decimal" autocomplete="off" value="${esc(def.le || '')}" aria-label="Уровень спада"> ${esc(u)}</span></label>` +
       `<label>${radio('ge', 'накопление: активность не меньше')} <span class="cond-val"><input type="text" id="findGe" inputmode="decimal" autocomplete="off" value="${esc(def.ge || '')}" aria-label="Уровень накопления"> ${esc(u)}</span></label>` +
@@ -1976,6 +1959,7 @@
       },
     });
     const out = $('#findOut');
+    const picker = PK.field($('#findName'), { names });
     const applyBtn = $('#dlg button[value="apply"]');
     const reset = () => { found = null; if (applyBtn) applyBtn.disabled = true; };
     reset();
@@ -1985,7 +1969,10 @@
     function say(text, bad) { out.textContent = text; out.classList.toggle('bad', !!bad); }
     function search() {
       reset();
-      const name = $('#findName').value;
+      const rn = PK.resolve($('#findName').value, { allowed: names });
+      if (!rn.name) { say(rn.error || 'Укажите изотоп: например, Ac-225 или актиний-225.', true); $('#findName').focus(); return; }
+      const name = rn.name;
+      $('#findName').value = name;
       const type = ($('#dlgBody input[name="findType"]:checked') || {}).value || 'le';
       const raw = { le: $('#findLe').value, ge: $('#findGe').value, pur: $('#findPur').value };
       state.findLast = Object.assign({ name, type }, raw);
@@ -2014,6 +2001,7 @@
       if (applyBtn) applyBtn.disabled = !(res.t > 0);
     }
     const r = await pr;
+    picker.destroy();
     if (r === 'apply' && found && found.t > 0) applyHold(found.t);
   }
   // ---------- обратный расчёт: A₀ по измерению ----------
@@ -2045,7 +2033,7 @@
     const html = '<p>Измерили активность не вначале, а позже? Укажите, какой изотоп, сколько и через какое время измерили, — ' +
       'программа найдёт, какой была начальная активность, и подставит её в таблицу.</p>' +
       '<div class="find-grid bc-grid">' +
-      `<label for="bcName">Измерили</label><select id="bcName">${opt(names.map((n) => [n, n]), def.name)}</select>` +
+      `<label for="bcName">Измерили</label>${isoField('bcName', def.name)}` +
       `<label for="bcA">Активность</label><span class="inp-unit"><input id="bcA" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.a)}" placeholder="например, 5000"><select id="bcAU" aria-label="Единица активности">${opt(actOpts, def.au)}</select></span>` +
       `<label for="bcT">Через</label><span class="inp-unit"><input id="bcT" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.t)}"><select id="bcTU" aria-label="Единица времени">${opt(tOpts, def.tu)}</select></span>` +
       `<label for="bcFrom">Что было вначале</label><select id="bcFrom">${opt(fromOpts, def.from)}</select>` +
@@ -2059,9 +2047,10 @@
       validate: (v) => (v === 'apply' ? !!(res && res.ok) : true),
     });
     const out = $('#bcOut');
+    const picker = PK.field($('#bcName'), { names });
     const applyBtn = $('#dlg button[value="apply"]');
     const read = () => ({
-      name: $('#bcName').value, a: $('#bcA').value, au: $('#bcAU').value, t: $('#bcT').value, tu: $('#bcTU').value,
+      name: PK.resolve($('#bcName').value, { allowed: names }).name || '', nameRaw: $('#bcName').value, a: $('#bcA').value, au: $('#bcAU').value, t: $('#bcT').value, tu: $('#bcTU').value,
       from: $('#bcFrom').value, hold: $('#bcHold').checked, key,
     });
     function update() {
@@ -2070,7 +2059,9 @@
       res = null;
       const a = parseNum(v.a), t = parseNum(v.t);
       let msg = '', badMsg = false;
-      if (a === null) msg = 'Введите измеренную активность.';
+      const rn = PK.resolve(v.nameRaw, { allowed: names });
+      if (!rn.name) { msg = rn.error || 'Укажите, какой изотоп измерили: например, Ac-225 или актиний-225.'; badMsg = !!rn.error; }
+      else if (a === null) msg = 'Введите измеренную активность.';
       else if (isNaN(a) || a <= 0) { msg = 'Активность — число больше нуля, например 5000 или 1,5E6.'; badMsg = true; }
       else if (t === null || isNaN(t) || t < 0) { msg = 'Время — число не меньше нуля.'; badMsg = true; }
       else {
@@ -2093,6 +2084,7 @@
     $('#dlgBody').addEventListener('change', update);
     update();
     const r = await pr;
+    picker.destroy();
     if (r !== 'apply' || !res || !res.ok) return;
     const v = read();
     if (state.locked) setLocked(false);
@@ -2414,14 +2406,13 @@
   async function cmdMass() {
     const T = 'Масса и активность';
     if (!AM) return;
-    const radio = Object.keys(DB).filter((n) => DB[n][0] != null).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+    const radio = PK.allRadioactive();
     const inSet = state.set.filter((x) => x.lambda > 0).map((x) => x.name);
     const def = (state.massLast && DB[state.massLast.name]) ? state.massLast : { name: state.target || inSet[0] || 'Th-229', from: 'G', A: '', AU: actUnit(), G: '1', GU: 'mg' };
     const mu = (k) => AM.MASS_UNITS.find((u) => u.key === k) || AM.MASS_UNITS[1];
     const html = '<p>Пересчёт активности чистого нуклида в массу и обратно: A = λ·N, N = m·N<sub>A</sub>/M. ' +
       'Атомные массы — AME 2020.</p>' +
-      `<div class="mass-grid"><label for="massName">Изотоп</label><input id="massName" type="text" list="massNames" autocomplete="off" spellcheck="false" value="${esc(def.name)}">` +
-      `<datalist id="massNames">${inSet.concat(radio.filter((n) => !inSet.includes(n))).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>` +
+      `<div class="mass-grid"><label for="massName">Изотоп</label>${isoField('massName', def.name, ' data-pt-scope="all"')}` +
       `<label for="massA">Активность</label><span class="inp-unit"><input id="massA" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.A)}">` +
       `<select id="massAU" aria-label="Единица активности">${Object.entries(ACT_UNITS).map(([k, v]) => `<option value="${k}"${k === def.AU ? ' selected' : ''}>${v.ru}</option>`).join('')}</select></span>` +
       `<label for="massG">Масса</label><span class="inp-unit"><input id="massG" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.G)}">` +
@@ -2433,8 +2424,9 @@
       const err = $('#massErr'); err.hidden = true;
       const out = $('#massOut');
       cur = null;
-      const name = C.normalizeName($('#massName').value);
-      if (!name) { out.innerHTML = ''; err.textContent = 'Такого изотопа нет в базе. Пример: Th-229, ra226, 225Ac.'; err.hidden = !$('#massName').value.trim(); return; }
+      const rn = PK.resolve($('#massName').value);
+      const name = rn.name;
+      if (!name) { out.innerHTML = ''; err.textContent = (rn.error || '') + ' Пример: Th-229, радий-226, 225Ac.'; err.hidden = !!rn.empty; return; }
       const T12 = DB[name][0];
       if (T12 == null) { out.innerHTML = `<p>${esc(name)} стабилен: у него нет активности.</p>`; return; }
       const lambda = Math.LN2 / ((state.overrides[name] && state.overrides[name].T) || T12);
@@ -2476,9 +2468,11 @@
     // смена единицы пересчитывает число в этом поле из другого поля, физическая величина не меняется
     $('#massAU').addEventListener('change', () => { from = 'G'; update(); });
     $('#massGU').addEventListener('change', () => { from = 'A'; update(); });
+    const picker = PK.field($('#massName'), { names: inSet.concat(radio.filter((n) => !inSet.includes(n))) });
     $('#massName').addEventListener('input', update);
     update();
     const r = await pr;
+    picker.destroy();
     if (r !== 'use' || !cur) return;
     putActivity(cur.name, cur.A);
   }
@@ -2650,7 +2644,7 @@
       inp.click();
     });
   }
-  function afterDbChange() { rebuildSet(); fillNuclideList(); changed(); renderInput(); }
+  function afterDbChange() { rebuildSet(); refreshPickers(); changed(); renderInput(); }
   async function cmdUpdateData() {
     const T = 'Обновить данные IAEA';
     if (!TL) return;
@@ -2911,7 +2905,9 @@
 
   function bindUI() {
     const rootInput = $('#rootInput');
-    if (rootInput) rootInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRoots(rootInput.value); } });
+    // подсказки по-русски и латиницей; выбор подсказки сразу добавляет изотоп
+    if (rootInput) PK.field(rootInput, { multi: true, onPick: () => addRoots(rootInput.value) });
+    if (rootInput) rootInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented) { e.preventDefault(); addRoots(rootInput.value); } });
     if (rootInput) rootInput.addEventListener('input', () => setRootError(''));
     const addBtn = $('#addRootBtn'); if (addBtn) addBtn.addEventListener('click', () => addRoots(rootInput.value));
     const ptBtn = $('#ptableBtn');
@@ -2951,7 +2947,20 @@
     const au = $('#actUnit'); if (au) au.addEventListener('change', () => { renderActUnit(); changed(); });
     const fh = $('#findHoldBtn'); if (fh) fh.addEventListener('click', cmdFindHold);
     // чистота: меняет только вид результата, ввод не разблокирует
-    const ts = $('#targetSel'); if (ts) ts.addEventListener('change', () => { state.target = ts.value; markDirty(); clearPrint(); renderResult(); scheduleViews(); });
+    const ts = $('#targetSel');
+    if (ts) ts.addEventListener('change', () => {
+      // «актиний», «Ac-225», «225 актиния» — из изотопов результата; пусто — не выбран
+      const rn = PK.resolve(ts.value, { allowed: state.targetNames || [] });
+      ts.classList.toggle('invalid', !!rn.error);
+      if (rn.error) {
+        ts.setAttribute('aria-invalid', 'true');
+        const out = $('#purityOut'); if (out) { out.textContent = rn.error; out.classList.add('bad'); show(out, true); }
+        return;
+      }
+      ts.removeAttribute('aria-invalid');
+      ts.value = rn.name || '';
+      state.target = rn.name || ''; markDirty(); clearPrint(); renderResult(); scheduleViews();
+    });
     const li = $('#limitInp'); if (li) li.addEventListener('input', () => { markDirty(); clearPrint(); renderResult(); });
     const pc = $('#progenyChk'); if (pc) pc.addEventListener('change', () => { state.countProgeny = pc.checked; markDirty(); clearPrint(); renderResult(); });
     $('#calcBtn').addEventListener('click', calc);
@@ -3024,7 +3033,6 @@
     loadIaeaUpdate();
     state.amount = amountModeGet();
     if (storeGet(CHART_SCALE_KEY) === 'lin') state.chartScale = 'lin';
-    fillNuclideList();
     fillPresetMenu();
     bindMenus();
     bindKeys();

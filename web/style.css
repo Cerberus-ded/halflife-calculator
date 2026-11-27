@@ -1031,3 +1031,25 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
   .answer ul { padding-left: 34px; }
 }
 @media print { .answer-copy { display: none !important; } .answer { background: none; border: 0.6pt solid #888; } .answer details > ul { display: grid !important; } }
+
+/* ---------- Поле изотопа и список подсказок (часть А: picker.js) ---------- */
+/* .iso-field и ширины полей совпадают с блоком части Б (ptable.js), чтобы ветки сливались без разницы в виде */
+.iso-field { display: inline-flex; align-items: stretch; gap: 6px; min-width: 0; max-width: 100%; }
+.iso-field > input { flex: 1 1 auto; min-width: 0; }
+.iso-field > input[aria-invalid="true"] { border-color: var(--err-line); box-shadow: 0 0 0 2px var(--err-soft); }
+.find-grid .iso-field > input, .mass-grid .iso-field > input { width: 170px; text-align: left; }
+.purity-bar .iso-field > input { width: 150px; height: 38px; text-align: left; }
+.iso-sug {
+  position: fixed; z-index: 1000; margin: 0; padding: 4px; list-style: none;
+  max-height: 280px; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--pane); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 10px;
+  box-shadow: var(--shadow-menu); font-size: 14.5px; scrollbar-width: thin;
+}
+.iso-sug[hidden] { display: none; }
+.iso-opt { display: flex; align-items: baseline; gap: 10px; min-height: 34px; padding: 6px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.iso-opt b { flex: none; min-width: 64px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.iso-opt span { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); font-size: 13.5px; }
+.iso-opt:hover, .iso-opt.active { background: var(--accent-soft); }
+.iso-opt.active b { color: var(--accent-ink); }
+@media (max-width: 560px) { .iso-opt { min-height: 40px; } }
+@media print { .iso-sug { display: none !important; } }
