@@ -17,7 +17,7 @@ let lastDir = null;
 // Открываются расчёты .hlc и формулы (Maple, LaTeX, Python, текст, CSV, Excel) — формат узнаёт страница (formula-import.js)
 const FORMULA_EXT = ['mpl', 'tex', 'py', 'txt', 'csv', 'tsv', 'xlsx'];
 const OPEN_RE = new RegExp(`\\.(hlc|json|${FORMULA_EXT.join('|')})$`, 'i');
-let pendingFile = fileFromArgs(process.argv); // после OPEN_RE: иначе запуск с аргументом (файл .hlc) падает
+let pendingFile = fileFromArgs(process.argv); // после OPEN_RE: иначе запуск с файлом падает (ReferenceError)
 
 app.setAppUserModelId('ru.halflife.calc');
 app.setName(PRODUCT);
