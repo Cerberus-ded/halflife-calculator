@@ -899,3 +899,8 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 @media (max-width: 600px) {
   .scheme-wrap { max-height: 46dvh; } /* чтобы на телефоне прокручивалась только схема, а не весь диалог */
 }
+@media print {
+  .chip-scheme { display: none !important; }
+  #printArea .print-scheme { break-inside: avoid; margin: 0 0 6pt; }
+  #printArea .print-scheme svg { display: block; margin: 0 auto; max-width: 100%; height: auto; max-height: 23cm; }
+}

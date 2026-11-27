@@ -73,6 +73,24 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     if (OUT) await p.screenshot({ path: path.join(OUT, 'scheme-after.png') });
     await p.keyboard.press('Escape'); await p.waitForTimeout(150);
 
+    // протокол Word: схема вставлена рисунком
+    await p.evaluate(() => { App.run('protocol'); });
+    await p.waitForFunction(() => window.__saved.length > 0, null, { timeout: 8000 }).catch(() => null);
+    const doc = await lastSaved();
+    const zipText = doc ? doc.buf.toString('latin1') : '';
+    const docXml = doc ? doc.buf.toString('utf8') : '';
+    check(doc && doc.name === 'ac-протокол.docx', 'протокол сохранён: ' + (doc && doc.name));
+    check(zipText.includes('word/media/image1.png') && zipText.includes('\x89PNG') && docXml.includes('r:embed="rIdImg1"') && docXml.includes('Схема распада'), 'в протоколе есть рисунок схемы');
+    // печать: схема — отдельной картинкой со своими цветами
+    await p.evaluate(() => { window.print = () => { window.__printed = document.querySelectorAll('#printArea .print-scheme svg.scheme-file .sch-node').length; }; App.run('print'); });
+    await p.waitForTimeout(150);
+    check((await p.evaluate(() => window.__printed)) === 9, 'в печати схема из 9 рамок');
+    await p.emulateMedia({ media: 'print' });
+    const pw = await p.evaluate(() => { const s = document.querySelector('#printArea .print-scheme svg'); const r = s.getBoundingClientRect(); return { w: r.width, h: r.height, box: getComputedStyle(s.querySelector('.sch-box')).fill }; });
+    check(pw.w > 100 && pw.h > 100 && pw.box === 'rgb(237, 241, 253)', `в печати схема видна, рамки с заливкой файла (${Math.round(pw.w)}×${Math.round(pw.h)}, ${pw.box})`);
+    if (OUT) await p.screenshot({ path: path.join(OUT, 'scheme-print.png'), fullPage: true });
+    await p.emulateMedia({ media: 'screen' });
+
     // тёмная тема: подписи светлые
     await p.emulateMedia({ colorScheme: 'dark' });
     await p.evaluate(() => { App.run('scheme'); }); await p.waitForTimeout(200);
