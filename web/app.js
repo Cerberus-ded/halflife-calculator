@@ -655,6 +655,7 @@
     const pl = r ? purityList(r) : null;
     renderPurityBar(r, pl);
     renderUncNote(r);
+    renderAnswer(r);
     updateNeedsResult();
     buildLegend();
     drawChart();
@@ -793,6 +794,122 @@
     const on = !!(r && r.unc);
     show(p, on);
     p.textContent = on ? `Погрешность (1σ): ${uncText(r)}. Метод Монте-Карло, ${r.unc.n} повторов; «±, %» — половина 95-процентного интервала.` : '';
+  }
+
+  // ---------- ответ простыми словами ----------
+  // Над таблицей: сколько осталось у каждого родоначальника (в % и в периодах полураспада), что накопилось
+  // в цепочке и итог по всем изотопам. Для неподготовленного читателя: таблица остаётся для подробностей.
+  function pctLeft(frac) {
+    const v = frac * 100;
+    if (!isFinite(v)) return '—';
+    if (v >= 99) return fmtPct(frac) + ' %';
+    if (v >= 0.01) return fmt(v, 3) + ' %';
+    return v > 0 ? 'меньше 0,01 %' : '0 %';
+  }
+  /** Число для фразы: 1,638 млн вместо 1,638E6 (до триллионов), остальное — как в таблице. */
+  function fmtWords(x) {
+    const a = Math.abs(x);
+    for (const [p, w] of [[1e12, 'трлн'], [1e9, 'млрд'], [1e6, 'млн']]) if (a >= p && a < p * 1000) return fmt(x / p) + ' ' + w;
+    return fmt(x);
+  }
+  function periodsText(k) {
+    if (!(k > 0)) return 'ноль периодов';
+    if (k < 0.001) return 'меньше 0,001 периода';
+    const v = Number(k.toPrecision(k >= 100 ? 4 : 3));
+    const s = fmt(v, k >= 100 ? 4 : 3);
+    return s + ' ' + (Number.isInteger(v) ? plural(v, ['период', 'периода', 'периодов']) : 'периода');
+  }
+  /** Ответ: [{html, text}] — строки для экрана и для копирования. */
+  function answerLines(r) {
+    const f = r.actF, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
+    const mainIdx = r.times ? Math.max(0, r.times.findIndex((t) => t.main)) : -1;
+    const A = (i) => (mainIdx >= 0 ? r.times[mainIdx].A[i] : r.rows[i].A);
+    const val = (x) => fmtWords(x / f) + ' ' + u;
+    const lines = [];
+    const groups = groupsOf(r.rows.map((x, i) => Object.assign({ i }, x)), r.roots);
+    let tot0 = 0, tot = 0, shown = 0;
+    for (const g of groups) {
+      const root = g.items.find((x) => x.name === g.root);
+      const sum0 = g.items.reduce((s, x) => s + x.A0, 0), sum = g.items.reduce((s, x) => s + A(x.i), 0);
+      tot0 += sum0; tot += sum;
+      if (!(sum0 > 0)) continue;
+      if (++shown > 4) continue;
+      if (root && root.A0 > 0 && A(root.i) / root.A0 >= 0.999) {
+        // долгоживущий родоначальник: числа «1 млн из 1 млн» только путают
+        const left = A(root.i) / root.A0;
+        lines.push({
+          html: `<b>${esc(root.name)}</b> почти не распался: осталось <b>${esc(pctLeft(left))}</b>. T½ = ${esc(C.fmtHalfLife(root.T))}, а прошло ${esc(r.holdText)}.`,
+          text: `${root.name} почти не распался: осталось ${pctLeft(left)}. T½ = ${C.fmtHalfLife(root.T)}, а прошло ${r.holdText}.`,
+        });
+      } else if (root && root.A0 > 0) {
+        const left = A(root.i) / root.A0;
+        lines.push({
+          html: `<b>${esc(root.name)}</b>: осталось <b>${esc(pctLeft(left))}</b> — ${esc(val(A(root.i)))} из ${esc(val(root.A0))}. ` +
+            `Прошло ${esc(periodsText(r.tSec / root.T))} полураспада (T½ = ${esc(C.fmtHalfLife(root.T))}).`,
+          text: `${root.name}: осталось ${pctLeft(left)} — ${val(A(root.i))} из ${val(root.A0)}. Прошло ${periodsText(r.tSec / root.T)} полураспада (T½ = ${C.fmtHalfLife(root.T)}).`,
+        });
+      }
+      const kids = g.items.filter((x) => x.name !== g.root && !x.stable && A(x.i) > 0).sort((a, b) => A(b.i) - A(a.i));
+      const kidSum = kids.reduce((s, x) => s + A(x.i), 0);
+      if (kids.length && kidSum >= 0.01 * sum) {
+        const top = kids.slice(0, 2).map((x) => `${x.name} — ${val(A(x.i))}`);
+        const grew = sum > sum0 * 1.0005, fell = sum < sum0 * 0.9995;
+        const trend = grew ? `больше, чем вначале (${val(sum0)}): дочерние изотопы накопились` : fell ? `вначале было ${val(sum0)}` : 'почти столько же, сколько вначале';
+        lines.push({
+          html: `Дочерние изотопы ${esc(g.root)}: больше всего активности у ${top.map(esc).join(', затем у ')}. ` +
+            `Вся цепочка вместе — <b>${esc(val(sum))}</b>, ${esc(trend)}.`,
+          text: `Дочерние изотопы ${g.root}: больше всего активности у ${top.join(', затем у ')}. Вся цепочка вместе — ${val(sum)}, ${trend}.`,
+        });
+      }
+    }
+    if (shown > 4) lines.push({ html: `…и ещё ${shown - 4} ${plural(shown - 4, ['цепочка', 'цепочки', 'цепочек'])} — в таблице.`, text: `…и ещё ${shown - 4} — в таблице.` });
+    const active = groups.filter((g) => g.items.some((x) => x.A0 > 0));
+    if (active.length > 1) {
+      lines.push({
+        html: `Всего, все изотопы вместе: <b>${esc(val(tot))}</b> (вначале было ${esc(val(tot0))}).`,
+        text: `Всего, все изотопы вместе: ${val(tot)} (вначале было ${val(tot0)}).`,
+      });
+    }
+    // заголовок одной строкой — виден и в свёрнутом виде
+    const g1 = active.length === 1 ? active[0] : null, root1 = g1 && g1.items.find((x) => x.name === g1.root);
+    if (root1 && root1.A0 > 0) {
+      const many = g1.items.some((x) => x.name !== g1.root && !x.stable && A(x.i) > 0.01 * root1.A0);
+      lines.head = `у ${root1.name} осталось ${pctLeft(A(root1.i) / root1.A0)}` + (many ? `, вся цепочка — ${val(g1.items.reduce((s, x) => s + A(x.i), 0))}` : '');
+    } else lines.head = `всего ${val(tot)} (вначале ${val(tot0)})`;
+    return lines;
+  }
+  function answerHead(r, lines) {
+    const extra = r.times && r.times.length > 1 ? ' (основной срок; остальные — в таблице)' : '';
+    return `Через ${r.holdText}: ${lines.head}${extra}`;
+  }
+  const ANSWER_KEY = 'halflife.answerOpen';
+  function renderAnswer(r) {
+    const box = $('#answer'); if (!box) return;
+    const lines = r ? answerLines(r) : [];
+    show(box, lines.length > 0);
+    if (!lines.length) { box.innerHTML = ''; return; }
+    // свёрнут/развёрнут: как выбрал пользователь; по умолчанию на широком экране свёрнут (таблице нужно место)
+    const saved = storeGet(ANSWER_KEY);
+    const open = saved ? saved === '1' : !(window.matchMedia && matchMedia('(min-width: 1100px)').matches);
+    box.innerHTML = `<details class="answer-det"${open ? ' open' : ''}><summary>` +
+      '<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      `<span class="answer-title"><small>Коротко</small>${esc(answerHead(r, lines))}</span></summary>` +
+      '<ul>' + lines.map((l) => `<li>${l.html}</li>`).join('') + '</ul></details>' +
+      // кнопка вне summary: щелчок по ней не сворачивает блок
+      '<button type="button" id="copyAnswerBtn" class="answer-copy" title="Скопировать ответ текстом — например, чтобы вставить в письмо" aria-label="Копировать ответ">' +
+      '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v6.5A1.5 1.5 0 0 0 4 11h1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>' +
+      '<span>Копировать</span></button>';
+    const det = $('details', box);
+    det.addEventListener('toggle', () => storeSet(ANSWER_KEY, det.open ? '1' : '0'));
+  }
+  function answerText() {
+    const r = state.result; if (!r) return '';
+    const lines = answerLines(r);
+    return answerHead(r, lines) + '.\n' + lines.map((l) => '• ' + l.text).join('\n');
+  }
+  async function copyAnswer() {
+    const ok = await copyText(answerText());
+    flash($('#copyAnswerBtn'), ok ? 'Скопировано' : 'Не удалось', ok);
   }
 
   // ---------- вкладки ----------
@@ -2697,6 +2814,7 @@
     $$('.chart-scale .fmt').forEach((b) => b.addEventListener('click', () => setChartScale(b.dataset.scale)));
     const cpng = $('#chartPngBtn'); if (cpng) cpng.addEventListener('click', downloadChartPng);
     const cb = $('#copyFormulaBtn'); if (cb) cb.addEventListener('click', copyFormulas);
+    const ans = $('#answer'); if (ans) ans.addEventListener('click', (e) => { if (e.target.closest('#copyAnswerBtn')) copyAnswer(); });
     const db = $('#downloadFormulaBtn'); if (db) db.addEventListener('click', downloadFormulas);
 
     const cv = $('#chart');
