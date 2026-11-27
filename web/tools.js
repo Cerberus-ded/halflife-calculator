@@ -3,8 +3,9 @@
  *  - подбор выдержки: спад до уровня, накопление до уровня, максимум активности, чистота не ниже заданной;
  *  - погрешность результата методом Монте-Карло (A₀ и T½ с заданной относительной погрешностью);
  *  - разбор выгрузки IAEA LiveChart (CSV ground_states) и обновление периодов полураспада в базе;
- *  - сборка протокола в формате Word (.docx).
- * API: window.HLTools = {evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx}.
+ *  - сборка протокола в формате Word (.docx);
+ *  - генератор с многократными отборами (элюирование дочернего элемента через равные промежутки).
+ * API: window.HLTools = {evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, generator, elementsOf, elementOf}.
  * Активности — в Бк, время — в секундах, доли — от 0 до 1.
  */
 (function (global) {
@@ -280,9 +281,22 @@
     });
     return x + '</w:tbl>' + para('', { after: 60 });
   }
+  /** Рисунок PNG по центру строки; размер — в EMU (1 px при 96 dpi = 9525 EMU). */
+  function picture(rid, n, cx, cy, alt) {
+    return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="120"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
+      `<wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Рисунок ${n}" descr="${xesc(alt || '')}"/>` +
+      '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' +
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>' +
+      `<pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.png"/><pic:cNvPicPr/></pic:nvPicPr>` +
+      `<pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+      `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+      '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
+  }
   /**
-   * blocks: [{h1|h2|p|small: текст} | {table: rows, header, widths, alignRight, boldRows} | {mono: текст}].
-   * landscape — альбомная страница для широких таблиц. Возвращает Blob .docx.
+   * blocks: [{h1|h2|p|small: текст} | {table: rows, header, widths, alignRight, boldRows} | {mono: текст} |
+   * {image: байты PNG (Uint8Array), width, height — размер в пикселях при 96 dpi, alt}].
+   * Рисунок уменьшается под ширину текста и высоту страницы. landscape — альбомная страница для широких таблиц.
+   * Возвращает Blob .docx.
    */
   function docx(blocks, o) {
     o = o || {};
@@ -290,7 +304,15 @@
     const pageW = land ? 16838 : 11906, pageH = land ? 11906 : 16838, margin = 1134;
     const textW = pageW - 2 * margin;
     let body = '';
+    const media = [];
     for (const b of blocks) {
+      if (b.image) {
+        const n = media.length + 1, rid = 'rIdImg' + n;
+        const k = Math.min(1, (textW * 635) / (b.width * 9525), ((pageH - 2 * margin) * 635 * 0.85) / (b.height * 9525));
+        body += picture(rid, n, Math.round(b.width * 9525 * k), Math.round(b.height * 9525 * k), b.alt);
+        media.push({ rid, name: `media/image${n}.png`, data: b.image });
+        continue;
+      }
       if (b.h1 != null) body += para(b.h1, { style: 'Heading1' });
       else if (b.h2 != null) body += para(b.h2, { style: 'Heading2' });
       else if (b.p != null) body += para(b.p, { bold: b.bold, color: b.color });
@@ -299,7 +321,9 @@
       else if (b.table) body += table(b.table, Object.assign({ width: textW }, b));
     }
     const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' +
+      ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"' +
+      ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>' + body +
       `<w:sectPr><w:pgSz w:w="${pageW}" w:h="${pageH}"${land ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`;
     const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
       '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="ru-RU"/></w:rPr></w:rPrDefault>' +
@@ -311,6 +335,7 @@
     const files = [
       { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+        (media.length ? '<Default Extension="png" ContentType="image/png"/>' : '') +
         '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
         '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
         '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>' },
@@ -320,15 +345,101 @@
       { name: 'docProps/core.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
         `<dc:title>${xesc(o.title || 'Протокол расчёта')}</dc:title><dc:creator>Калькулятор полураспада</dc:creator></cp:coreProperties>` },
       { name: 'word/_rels/document.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+        media.map((m) => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${m.name}"/>`).join('') + '</Relationships>' },
       { name: 'word/document.xml', data: doc },
       { name: 'word/styles.xml', data: styles },
+      ...media.map((m) => ({ name: 'word/' + m.name, data: m.data })),
     ];
     const zip = (global.HLXlsx && global.HLXlsx.zip) || (typeof require === 'function' ? (require('./xlsx.js'), globalThis.HLXlsx.zip) : null);
     return zip(files, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   }
 
-  const api = { evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, parseCsv };
+  // ---------- генератор с многократными отборами ----------
+  /** Химический элемент нуклида: «Ac-225» → «Ac», «Pa-234m» → «Pa». */
+  const elementOf = (name) => String(name).split('-')[0];
+  /** Элементы набора в порядке появления: [{el, names: [имена нуклидов]}]. */
+  function elementsOf(set) {
+    const map = new Map();
+    for (const x of set) { const e = elementOf(x.name); if (!map.has(e)) map.set(e, []); map.get(e).push(x.name); }
+    return Array.from(map, ([el, names]) => ({ el, names }));
+  }
+  const GEN_MAX = 1000;
+  /**
+   * Генератор: смесь с начальными активностями A0 распадается; в моменты отбора из неё химически извлекается
+   * доля eff[элемент] (0…1) каждого изотопа этого элемента, остальное остаётся и продолжает распадаться.
+   * opts: {eff: {Ac: 1}, interval: с, count: число отборов, first: с (первый отбор; по умолчанию = interval),
+   *        points: точек графика на интервал (40), series: false — без графика}.
+   * Возвращает {times, eluate: [[A_i, Бк]], eluateN: [[N_i]], before: [[A_i генератора перед отбором]],
+   *   after: [[A_i после отбора]], final, N (атомы генератора после последнего отбора), series: {t, A}}.
+   */
+  function generator(set, A0, opts) {
+    const o = opts || {};
+    const lam = set.map((x) => x.lambda);
+    const frac = set.map((x) => {
+      const e = Number(o.eff && o.eff[elementOf(x.name)]);
+      return isFinite(e) ? Math.min(Math.max(e, 0), 1) : 0;
+    });
+    const count = o.count == null ? 1 : Math.floor(Number(o.count));
+    if (!(count >= 1 && count <= GEN_MAX)) throw new Error(`Число отборов — от 1 до ${GEN_MAX}.`);
+    const interval = Number(o.interval) || 0;
+    if (count > 1 && !(interval > 0)) throw new Error('Интервал между отборами должен быть больше нуля.');
+    const first = o.first != null ? Number(o.first) : interval;
+    if (!(first >= 0) || !isFinite(first)) throw new Error('Время первого отбора должно быть не меньше нуля.');
+    const PTS = Math.max(2, Math.min(200, Math.floor(o.points || 40)));
+    const act = (N) => N.map((v, i) => v * lam[i]);
+    let N = set.map((x) => (x.lambda > 0 ? (Number(A0[x.name]) || 0) / x.lambda : 0));
+    const res = { times: [], eluate: [], eluateN: [], before: [], after: [], series: o.series === false ? null : { t: [0], A: [act(N)] } };
+    let t = 0;
+    for (let k = 0; k < count; k++) {
+      const tk = first + k * interval, dt = tk - t;
+      if (dt > 0) {
+        const sol = core().solve(set, N);
+        if (res.series) for (let p = 1; p <= PTS; p++) { const tt = dt * p / PTS; res.series.t.push(t + tt); res.series.A.push(act(sol.N(tt))); }
+        N = sol.N(dt);
+      }
+      res.before.push(act(N));
+      const out = N.map((v, i) => v * frac[i]);
+      N = N.map((v, i) => v - out[i]);
+      res.times.push(tk); res.eluateN.push(out); res.eluate.push(act(out));
+      const after = act(N);
+      res.after.push(after);
+      if (res.series) { res.series.t.push(tk); res.series.A.push(after); }
+      t = tk;
+    }
+    res.final = res.after[res.after.length - 1];
+    res.N = N;
+    return res;
+  }
+
+  // ---------- обратный расчёт по измерению ----------
+  /**
+   * Начальные активности, при которых активность изотопа name через tSec равна measured (Бк).
+   * base — A₀ в Бк, задающие соотношение (например, {родоначальник: 1}); все они умножаются на один множитель,
+   * задача линейна. Возвращает {ok, A0, k, perBase} или {ok: false, reason}.
+   */
+  function backCalc(set, base, name, tSec, measured) {
+    const i = set.findIndex((x) => x.name === name);
+    if (i < 0) return { ok: false, reason: `Изотопа ${name} нет в цепочке.` };
+    if (!(set[i].lambda > 0)) return { ok: false, reason: `${name} стабилен: у него нет активности.` };
+    if (!(measured > 0) || !isFinite(measured)) return { ok: false, reason: 'Измеренная активность должна быть больше нуля.' };
+    if (!(tSec >= 0) || !isFinite(tSec)) return { ok: false, reason: 'Время до измерения должно быть числом не меньше нуля.' };
+    if (!Object.keys(base).some((n) => base[n] > 0)) return { ok: false, reason: 'Не от чего считать: нет ни одной начальной активности.' };
+    const a = evaluator(set, base)(tSec)[i];
+    if (!(a > 0) || !isFinite(a)) {
+      const only = Object.keys(base).filter((n) => base[n] > 0);
+      return { ok: false, reason: tSec === 0 && !(base[name] > 0)
+        ? `В начальный момент ${name} ещё не образовался — его активность равна нулю. Укажите время больше нуля.`
+        : `${name} не образуется из ${only.join(', ')} или к этому времени распадается полностью.` };
+    }
+    const k = measured / a;
+    if (!isFinite(k)) return { ok: false, reason: 'Слишком большое время: начальная активность выходит за пределы чисел.' };
+    const A0 = {};
+    for (const n of Object.keys(base)) A0[n] = (base[n] > 0 ? base[n] : 0) * k;
+    return { ok: true, A0, k, perBase: a };
+  }
+
+  const api = { evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, parseCsv, generator, elementsOf, elementOf, backCalc };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.HLTools = api;
 })(typeof window !== 'undefined' ? window : globalThis);

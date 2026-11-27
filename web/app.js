@@ -10,6 +10,8 @@
   const C = window.HLCore;
   const F = window.HLFormulas || null;
   const TL = window.HLTools || null; // чистота, подбор выдержки, погрешность, IAEA, .docx
+  const AM = window.HLAmount || null; // массы нуклидов, масса ↔ активность
+  const SCH = window.HLScheme || null; // картинка схемы распада (SVG)
   const DB = window.NUCDB || {};
   const host = window.hostBridge || null; // Electron
   const android = window.AndroidHost || null; // Android WebView
@@ -105,8 +107,12 @@
     unc: { uA: 0, uT: 0, useIaea: false }, // погрешности, % (1σ)
     iaea: null, // обновление данных IAEA {date, changes: {имя: T}, unc: {имя: отн.}}
     findLast: null,
+    gen: null, // генератор: {interval, unit, count, first?, eff: {элемент: %}}
+    amount: 'N', // последний столбец результата: N — атомы, m — масса, mol — моль
+    massLast: null,
     hidden: {}, // скрытые на графике серии
     tab: 'result', fmt: 'text', hover: null,
+    chartScale: 'log', // шкала графика по вертикали: 'log' или 'lin' (запоминается в браузере)
   };
 
   // ---------- набор нуклидов ----------
@@ -135,8 +141,8 @@
     const errors = [];
     let added = 0;
     for (const p of parts) {
-      const name = C.normalizeName(p);
-      if (!name) { errors.push(`«${p}» нет в базе нуклидов.`); continue; }
+      const name = C.normalizeName(p) || nameFromWords(p);
+      if (!name) { errors.push(unknownText(p)); continue; }
       if (DB[name][0] == null) { errors.push(`${name} стабилен — у него нет распада.`); continue; }
       if (state.roots.includes(name)) { errors.push(`${name} уже добавлен.`); continue; }
       const inSet = state.set.find((x) => x.name === name);
@@ -161,6 +167,142 @@
     renderInput();
   }
 
+  // ---------- названия элементов и таблица Менделеева ----------
+  const EL = window.HLElements || null;
+  /** «цезий-137», «137 цезий», «технеций-99м» -> Cs-137, Tc-99m (или null). */
+  function nameFromWords(p) {
+    const r = EL && EL.parse(p);
+    return r && r.a ? C.normalizeName(r.sym + '-' + r.a + r.meta) : null;
+  }
+  /** Радиоактивные изотопы элемента из базы, по массовому числу. */
+  function isotopesOf(sym) {
+    const key = (n) => { const m = n.match(/^[A-Za-z]+-(\d+)(\w*)$/); return m ? +m[1] + (m[2] ? 0.5 : 0) : 0; };
+    return Object.keys(DB).filter((n) => DB[n][0] != null && n.slice(0, n.indexOf('-')) === sym).sort((a, b) => key(a) - key(b));
+  }
+  function elementRu(sym) { const e = EL && EL.bySym[sym]; return e ? e.ru : sym; }
+  /** Понятное сообщение, если изотоп не распознан. */
+  function unknownText(p) {
+    const r = EL && EL.parse(p);
+    if (!r) return `«${p}» нет в базе нуклидов.`;
+    const iso = isotopesOf(r.sym);
+    const ru = elementRu(r.sym);
+    if (!iso.length) return `У элемента ${ru} (${r.sym}) в базе нет радиоактивных изотопов.`;
+    const longest = iso.slice().sort((a, b) => DB[b][0] - DB[a][0]).slice(0, 3);
+    if (!r.a) return `${ru}: какой изотоп? Укажите массовое число, например ${longest.join(', ')}. Все изотопы — кнопка «Таблица Менделеева».`;
+    return `Изотопа ${r.sym}-${r.a}${r.meta} нет в базе. Есть, например: ${longest.join(', ')}.`;
+  }
+
+  async function cmdPtable(start) {
+    if (!EL) return;
+    if (state.locked) { dialog({ title: 'Таблица Менделеева', html: '<p>Сейчас данные закреплены. Нажмите «Изменить данные», чтобы добавить изотоп.</p>' }); return; }
+    const avail = {};
+    for (const n of Object.keys(DB)) if (DB[n][0] != null) { const s = n.slice(0, n.indexOf('-')); avail[s] = (avail[s] || 0) + 1; }
+    const inUse = new Set(state.roots.map((r) => r.slice(0, r.indexOf('-'))));
+    let cells = '';
+    for (const e of EL.list) {
+      const p = EL.pos(e.z), n = avail[e.sym] || 0;
+      const t = n ? `${e.ru}, Z = ${e.z}. Радиоактивных изотопов в базе: ${n}` : `${e.ru}, Z = ${e.z}. Нет в базе`;
+      cells += `<button type="button" class="pt-el${n ? '' : ' none'}${inUse.has(e.sym) ? ' used' : ''}" data-sym="${e.sym}" data-row="${p.row}" data-col="${p.col}"` +
+        ` style="grid-row:${p.row};grid-column:${p.col}" title="${esc(t)}" aria-label="${esc(t)}" tabindex="-1"${n ? '' : ' disabled'}>` +
+        `<small>${e.z}</small><b>${e.sym}</b></button>`;
+    }
+    cells += '<span class="pt-ph" style="grid-row:6;grid-column:3" aria-hidden="true">57–71</span><span class="pt-ph" style="grid-row:7;grid-column:3" aria-hidden="true">89–103</span>' +
+      '<span class="pt-flabel" style="grid-row:9;grid-column:1 / span 2">лантаноиды</span><span class="pt-flabel" style="grid-row:10;grid-column:1 / span 2">актиноиды</span>';
+    const p = dialog({
+      title: 'Таблица Менделеева', wide: true,
+      html: '<div class="pt-top"><input id="ptSearch" type="search" placeholder="Найти: цезий, Cs или 55" aria-label="Найти элемент" autocomplete="off" spellcheck="false">' +
+        '<p class="pt-help">Выберите элемент, затем изотоп — он добавится в расчёт. Можно выбрать несколько.</p></div>' +
+        `<div class="pt-wrap"><div class="pt-grid" role="group" aria-label="Элементы">${cells}</div></div>` +
+        '<div id="ptIso" class="pt-iso" aria-live="polite"></div><p id="ptStatus" class="pt-status" role="status"></p>',
+      buttons: [{ label: 'Готово', value: 'ok', primary: true }],
+    });
+    const body = $('#dlgBody'), grid = $('.pt-grid', body), search = $('#ptSearch'), isoBox = $('#ptIso'), status = $('#ptStatus');
+    let sel = null;
+    const cellOf = (sym) => $(`.pt-el[data-sym="${sym}"]`, grid);
+    const setStatus = (text, err) => { status.textContent = text || ''; status.classList.toggle('error', !!err); };
+    function renderIso(focusName) {
+      if (!sel) { isoBox.innerHTML = '<p class="pt-hint">Выберите элемент — здесь появятся его радиоактивные изотопы.</p>'; return; }
+      const e = EL.bySym[sel], iso = isotopesOf(sel);
+      const roots = new Set(state.roots), inSet = new Set(state.set.map((x) => x.name));
+      isoBox.innerHTML = `<h3>${esc(e.ru)} <span>${esc(e.sym)} · Z = ${e.z}</span></h3><div class="pt-iso-list">` + iso.map((n) => {
+        const added = roots.has(n), chain = !added && inSet.has(n);
+        const note = added ? 'добавлен' : chain ? 'уже в цепочке' : C.fmtHalfLife(DB[n][0]);
+        return `<button type="button" class="pt-iso-btn${added ? ' added' : ''}${chain ? ' chain' : ''}" data-add="${esc(n)}"${added ? ' aria-pressed="true"' : ''}>` +
+          `<b>${esc(n)}</b><span>${esc(note)}</span></button>`;
+      }).join('') + '</div>';
+      if (focusName) { const b = $(`[data-add="${focusName}"]`, isoBox); if (b) b.focus(); }
+    }
+    function select(sym, focusCell) {
+      const c = cellOf(sym); if (!c || c.disabled) return;
+      $$('.pt-el.sel', grid).forEach((x) => { x.classList.remove('sel'); x.tabIndex = -1; x.removeAttribute('aria-pressed'); });
+      c.classList.add('sel'); c.tabIndex = 0; c.setAttribute('aria-pressed', 'true');
+      sel = sym; renderIso();
+      if (focusCell) c.focus();
+      c.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    function add(n) {
+      if (state.roots.includes(n)) { setStatus(`${n} уже добавлен.`); return; }
+      addRoots(n);
+      const ok = state.roots.includes(n);
+      if (ok) {
+        setStatus(`${n} добавлен в расчёт. Можно выбрать ещё или нажать «Готово».`);
+        const c = cellOf(sel); if (c) c.classList.add('used');
+      } else setStatus(($('#rootError') || {}).textContent || `${n} не добавлен.`, true);
+      renderIso(n);
+    }
+    // первая клетка в порядке обхода — фокусируемая
+    const first = cellOf(state.roots.length ? state.roots[state.roots.length - 1].split('-')[0] : 'H') || cellOf('H');
+    if (first) first.tabIndex = 0;
+    renderIso();
+    const onClick = (ev) => {
+      const c = ev.target.closest('.pt-el'); if (c && !c.disabled) { select(c.dataset.sym); setStatus(''); return; }
+      const b = ev.target.closest('[data-add]'); if (b) add(b.dataset.add);
+    };
+    const onGridKey = (ev) => {
+      const c = ev.target.closest('.pt-el'); if (!c) return;
+      const dir = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] }[ev.key];
+      if (!dir) { if (ev.key === 'Home' || ev.key === 'End') { ev.preventDefault(); const all = $$('.pt-el:not(:disabled)', grid); const t = ev.key === 'Home' ? all[0] : all[all.length - 1]; t.tabIndex = 0; c.tabIndex = -1; t.focus(); } return; }
+      ev.preventDefault();
+      const r = +c.dataset.row, col = +c.dataset.col;
+      const all = $$('.pt-el:not(:disabled)', grid).map((x) => ({ x, r: +x.dataset.row, c: +x.dataset.col }));
+      let cand;
+      if (dir[0] === 0) {
+        cand = all.filter((o) => o.r === r && (dir[1] > 0 ? o.c > col : o.c < col)).sort((a, b) => (dir[1] > 0 ? a.c - b.c : b.c - a.c))[0];
+      } else {
+        const rows = [...new Set(all.map((o) => o.r))].filter((x) => (dir[0] > 0 ? x > r : x < r)).sort((a, b) => (dir[0] > 0 ? a - b : b - a));
+        for (const rr of rows) { const inRow = all.filter((o) => o.r === rr); if (inRow.length) { cand = inRow.sort((a, b) => Math.abs(a.c - col) - Math.abs(b.c - col))[0]; break; } }
+      }
+      if (cand) { c.tabIndex = -1; cand.x.tabIndex = 0; cand.x.focus(); }
+    };
+    const onSearch = () => {
+      const q = search.value.trim();
+      $$('.pt-el.hit', grid).forEach((x) => x.classList.remove('hit'));
+      if (!q) { setStatus(''); return; }
+      const r = EL.parse(q);
+      const lq = q.toLowerCase().replace(/ё/g, 'е');
+      const hits = r ? [EL.bySym[r.sym]] : EL.list.filter((e) => String(e.z) === q || e.sym.toLowerCase() === lq || e.ru.toLowerCase().replace(/ё/g, 'е').startsWith(lq));
+      const ok = hits.filter((e) => avail[e.sym]);
+      ok.forEach((e) => { const c = cellOf(e.sym); if (c) c.classList.add('hit'); });
+      if (ok.length) select(ok[0].sym);
+      setStatus(ok.length ? '' : 'Не найдено. Введите название элемента (цезий), символ (Cs) или номер (55).', !ok.length);
+    };
+    const onSearchKey = (ev) => {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const name = C.normalizeName(search.value) || nameFromWords(search.value);
+      if (name && DB[name][0] != null) { if (name.split('-')[0] !== sel) select(name.split('-')[0]); add(name); return; }
+      const b = $('.pt-iso-btn', isoBox); if (b) b.focus();
+    };
+    body.addEventListener('click', onClick);
+    grid.addEventListener('keydown', onGridKey);
+    search.addEventListener('input', onSearch);
+    search.addEventListener('keydown', onSearchKey);
+    if (start && EL.symbolOf(start)) { search.value = start; onSearch(); }
+    search.focus();
+    await p;
+    body.removeEventListener('click', onClick);
+  }
+
   // ---------- панель ввода ----------
   function fillNuclideList() {
     const dl = $('#nuclideList'); if (!dl) return;
@@ -170,7 +312,8 @@
     const frag = document.createDocumentFragment();
     for (const n of names) {
       const o = document.createElement('option');
-      o.value = n; o.label = C.fmtHalfLife(DB[n][0]);
+      const ru = EL && EL.bySym[n.slice(0, n.indexOf('-'))];
+      o.value = n; o.label = (ru ? ru.ru + '-' + n.slice(n.indexOf('-') + 1) + ' · ' : '') + C.fmtHalfLife(DB[n][0]);
       frag.appendChild(o);
     }
     dl.innerHTML = ''; dl.appendChild(frag);
@@ -179,7 +322,9 @@
   function renderChips() {
     const box = $('#rootChips'); if (!box) return;
     box.innerHTML = state.roots.map((r) =>
-      `<span class="chip">${esc(r)} <button type="button" class="chip-x" data-remove="${esc(r)}" title="Убрать цепочку ${esc(r)}" aria-label="Убрать ${esc(r)}"${state.locked ? ' disabled' : ''}>×</button></span>`).join('');
+      `<span class="chip">${esc(r)} <button type="button" class="chip-x" data-remove="${esc(r)}" title="Убрать цепочку ${esc(r)}" aria-label="Убрать ${esc(r)}"${state.locked ? ' disabled' : ''}>×</button></span>`).join('') +
+      (SCH && state.roots.length ? '<button type="button" class="chip-scheme" id="schemeBtn" data-cmd="scheme" title="Картинка цепочки: кто во что распадается, доли ветвлений, T½ и активности">' +
+        '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="1.5" width="6" height="4" rx="1"/><rect x="1" y="10.5" width="6" height="4" rx="1"/><rect x="9" y="10.5" width="6" height="4" rx="1"/><path d="M8 5.5v2.5M4 10.5V8h8v2.5"/></svg>Схема распада</button>' : '');
   }
 
   function renderInputTable() {
@@ -458,6 +603,7 @@
     renderResult();
     selectTab(state.tab);
     scheduleFormulas();
+    if (state.dirty) scheduleDraft(false);
   }
 
   /** Любое изменение ввода: документ «грязный», прежний результат больше не соответствует данным. */
@@ -473,7 +619,7 @@
     const panel = $('#inputPanel');
     if (panel) panel.classList.toggle('locked', on);
     document.body.classList.toggle('locked', on);
-    $$('#inputTable input, #rootInput, #addRootBtn, #hold, #holdUnit, #holdExtra, #holdDatesBtn, #actUnit, #rootChips .chip-x').forEach((e) => { e.disabled = on; });
+    $$('#inputTable input, #rootInput, #addRootBtn, #ptableBtn, #hold, #holdUnit, #holdExtra, #holdDatesBtn, #actUnit, #rootChips .chip-x').forEach((e) => { e.disabled = on; });
     $$('#inputTable td.t12[data-edit]').forEach((td) => { td.tabIndex = on ? -1 : 0; td.setAttribute('aria-disabled', on ? 'true' : 'false'); });
     show($('#calcBtn'), !on);
     show($('#editBtn'), on);
@@ -504,11 +650,12 @@
     if (title) title.textContent = r ? resultTitle(r) : 'Результат';
     const au = ACT_UNITS[r ? r.actUnit : actUnit()] || ACT_UNITS[DEFAULT_ACT];
     const f = r ? r.actF : 1, u = au.ru;
-    const note = $('#tp-chart .toolbar-note'); if (note) note.textContent = `A(t), ${u}, логарифмическая шкала`;
+    renderChartScale(u);
     if (r) { if (uncActive()) { if (!r.unc || r.unc.key !== uncKey()) computeUnc(r); } else r.unc = null; }
     const pl = r ? purityList(r) : null;
     renderPurityBar(r, pl);
     renderUncNote(r);
+    renderAnswer(r);
     updateNeedsResult();
     buildLegend();
     drawChart();
@@ -523,8 +670,11 @@
     else head.push(`<th scope="col" class="num">A(t), ${esc(u)}</th>`);
     if (unc) head.push(`<th scope="col" class="num" title="Половина 95-процентного интервала для A(${esc(r ? r.holdText : 't')}), метод Монте-Карло">±, %</th>`);
     if (pm) head.push(`<th scope="col" class="num" title="Доля примеси в общей активности (без самой цели${state.countProgeny ? '' : ' и её дочерних продуктов'})">Примесь, %</th>`);
-    head.push(`<th scope="col" class="num">N(${times ? esc(r.holdText) : 't'}), атомов</th>`);
+    const amt = r ? amountColumn(r, times ? r.holdText : 't') : { head: 'N(t), атомов', cells: [] };
+    head.push(AM ? `<th scope="col" class="num"><button type="button" id="amountBtn" class="amount-btn" title="Показать число атомов, массу или количество вещества (моль)">${esc(amt.head)}</button></th>`
+      : `<th scope="col" class="num">${esc(amt.head)}</th>`);
     if (table.tHead) table.tHead.innerHTML = '<tr>' + head.join('') + '</tr>';
+    const amtBtn = $('#amountBtn'); if (amtBtn) amtBtn.addEventListener('click', cycleAmount);
     const tb = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
     if (!r) { tb.innerHTML = ''; return; }
     const out = [];
@@ -554,7 +704,7 @@
         if (pm) extra += isT ? '<td class="num share is-target">цель</td>' : x.stable ? '<td class="num share">—</td>' : `<td class="num share" title="${full(share * 100)} %">${share > 0 ? fmt(share * 100, 3) : '0'}</td>`;
         out.push(`<tr${cls ? ` class="${cls}"` : ''}><td class="iso">${esc(x.name)}</td>` +
           (x.stable ? '<td class="num">—</td>'.repeat(1 + nA) : cell(x.A0 / f, u) + aCells(x)) +
-          extra + cell(x.N, 'атомов') + '</tr>');
+          extra + `<td class="num" title="${esc(amt.cells[i][1])}">${fmt(amt.cells[i][0])}</td>` + '</tr>');
       }
       out.push(`<tr class="total"><td>Сумма</td>${cell(sumA(g.items, 'A0') / f, u)}${sumCells(g.items)}${'<td></td>'.repeat(extraCols)}<td></td></tr>`);
     }
@@ -646,6 +796,122 @@
     p.textContent = on ? `Погрешность (1σ): ${uncText(r)}. Метод Монте-Карло, ${r.unc.n} повторов; «±, %» — половина 95-процентного интервала.` : '';
   }
 
+  // ---------- ответ простыми словами ----------
+  // Над таблицей: сколько осталось у каждого родоначальника (в % и в периодах полураспада), что накопилось
+  // в цепочке и итог по всем изотопам. Для неподготовленного читателя: таблица остаётся для подробностей.
+  function pctLeft(frac) {
+    const v = frac * 100;
+    if (!isFinite(v)) return '—';
+    if (v >= 99) return fmtPct(frac) + ' %';
+    if (v >= 0.01) return fmt(v, 3) + ' %';
+    return v > 0 ? 'меньше 0,01 %' : '0 %';
+  }
+  /** Число для фразы: 1,638 млн вместо 1,638E6 (до триллионов), остальное — как в таблице. */
+  function fmtWords(x) {
+    const a = Math.abs(x);
+    for (const [p, w] of [[1e12, 'трлн'], [1e9, 'млрд'], [1e6, 'млн']]) if (a >= p && a < p * 1000) return fmt(x / p) + ' ' + w;
+    return fmt(x);
+  }
+  function periodsText(k) {
+    if (!(k > 0)) return 'ноль периодов';
+    if (k < 0.001) return 'меньше 0,001 периода';
+    const v = Number(k.toPrecision(k >= 100 ? 4 : 3));
+    const s = fmt(v, k >= 100 ? 4 : 3);
+    return s + ' ' + (Number.isInteger(v) ? plural(v, ['период', 'периода', 'периодов']) : 'периода');
+  }
+  /** Ответ: [{html, text}] — строки для экрана и для копирования. */
+  function answerLines(r) {
+    const f = r.actF, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
+    const mainIdx = r.times ? Math.max(0, r.times.findIndex((t) => t.main)) : -1;
+    const A = (i) => (mainIdx >= 0 ? r.times[mainIdx].A[i] : r.rows[i].A);
+    const val = (x) => fmtWords(x / f) + ' ' + u;
+    const lines = [];
+    const groups = groupsOf(r.rows.map((x, i) => Object.assign({ i }, x)), r.roots);
+    let tot0 = 0, tot = 0, shown = 0;
+    for (const g of groups) {
+      const root = g.items.find((x) => x.name === g.root);
+      const sum0 = g.items.reduce((s, x) => s + x.A0, 0), sum = g.items.reduce((s, x) => s + A(x.i), 0);
+      tot0 += sum0; tot += sum;
+      if (!(sum0 > 0)) continue;
+      if (++shown > 4) continue;
+      if (root && root.A0 > 0 && A(root.i) / root.A0 >= 0.999) {
+        // долгоживущий родоначальник: числа «1 млн из 1 млн» только путают
+        const left = A(root.i) / root.A0;
+        lines.push({
+          html: `<b>${esc(root.name)}</b> почти не распался: осталось <b>${esc(pctLeft(left))}</b>. T½ = ${esc(C.fmtHalfLife(root.T))}, а прошло ${esc(r.holdText)}.`,
+          text: `${root.name} почти не распался: осталось ${pctLeft(left)}. T½ = ${C.fmtHalfLife(root.T)}, а прошло ${r.holdText}.`,
+        });
+      } else if (root && root.A0 > 0) {
+        const left = A(root.i) / root.A0;
+        lines.push({
+          html: `<b>${esc(root.name)}</b>: осталось <b>${esc(pctLeft(left))}</b> — ${esc(val(A(root.i)))} из ${esc(val(root.A0))}. ` +
+            `Прошло ${esc(periodsText(r.tSec / root.T))} полураспада (T½ = ${esc(C.fmtHalfLife(root.T))}).`,
+          text: `${root.name}: осталось ${pctLeft(left)} — ${val(A(root.i))} из ${val(root.A0)}. Прошло ${periodsText(r.tSec / root.T)} полураспада (T½ = ${C.fmtHalfLife(root.T)}).`,
+        });
+      }
+      const kids = g.items.filter((x) => x.name !== g.root && !x.stable && A(x.i) > 0).sort((a, b) => A(b.i) - A(a.i));
+      const kidSum = kids.reduce((s, x) => s + A(x.i), 0);
+      if (kids.length && kidSum >= 0.01 * sum) {
+        const top = kids.slice(0, 2).map((x) => `${x.name} — ${val(A(x.i))}`);
+        const grew = sum > sum0 * 1.0005, fell = sum < sum0 * 0.9995;
+        const trend = grew ? `больше, чем вначале (${val(sum0)}): дочерние изотопы накопились` : fell ? `вначале было ${val(sum0)}` : 'почти столько же, сколько вначале';
+        lines.push({
+          html: `Дочерние изотопы ${esc(g.root)}: больше всего активности у ${top.map(esc).join(', затем у ')}. ` +
+            `Вся цепочка вместе — <b>${esc(val(sum))}</b>, ${esc(trend)}.`,
+          text: `Дочерние изотопы ${g.root}: больше всего активности у ${top.join(', затем у ')}. Вся цепочка вместе — ${val(sum)}, ${trend}.`,
+        });
+      }
+    }
+    if (shown > 4) lines.push({ html: `…и ещё ${shown - 4} ${plural(shown - 4, ['цепочка', 'цепочки', 'цепочек'])} — в таблице.`, text: `…и ещё ${shown - 4} — в таблице.` });
+    const active = groups.filter((g) => g.items.some((x) => x.A0 > 0));
+    if (active.length > 1) {
+      lines.push({
+        html: `Всего, все изотопы вместе: <b>${esc(val(tot))}</b> (вначале было ${esc(val(tot0))}).`,
+        text: `Всего, все изотопы вместе: ${val(tot)} (вначале было ${val(tot0)}).`,
+      });
+    }
+    // заголовок одной строкой — виден и в свёрнутом виде
+    const g1 = active.length === 1 ? active[0] : null, root1 = g1 && g1.items.find((x) => x.name === g1.root);
+    if (root1 && root1.A0 > 0) {
+      const many = g1.items.some((x) => x.name !== g1.root && !x.stable && A(x.i) > 0.01 * root1.A0);
+      lines.head = `у ${root1.name} осталось ${pctLeft(A(root1.i) / root1.A0)}` + (many ? `, вся цепочка — ${val(g1.items.reduce((s, x) => s + A(x.i), 0))}` : '');
+    } else lines.head = `всего ${val(tot)} (вначале ${val(tot0)})`;
+    return lines;
+  }
+  function answerHead(r, lines) {
+    const extra = r.times && r.times.length > 1 ? ' (основной срок; остальные — в таблице)' : '';
+    return `Через ${r.holdText}: ${lines.head}${extra}`;
+  }
+  const ANSWER_KEY = 'halflife.answerOpen';
+  function renderAnswer(r) {
+    const box = $('#answer'); if (!box) return;
+    const lines = r ? answerLines(r) : [];
+    show(box, lines.length > 0);
+    if (!lines.length) { box.innerHTML = ''; return; }
+    // свёрнут/развёрнут: как выбрал пользователь; по умолчанию на широком экране свёрнут (таблице нужно место)
+    const saved = storeGet(ANSWER_KEY);
+    const open = saved ? saved === '1' : !(window.matchMedia && matchMedia('(min-width: 1100px)').matches);
+    box.innerHTML = `<details class="answer-det"${open ? ' open' : ''}><summary>` +
+      '<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      `<span class="answer-title"><small>Коротко</small>${esc(answerHead(r, lines))}</span></summary>` +
+      '<ul>' + lines.map((l) => `<li>${l.html}</li>`).join('') + '</ul></details>' +
+      // кнопка вне summary: щелчок по ней не сворачивает блок
+      '<button type="button" id="copyAnswerBtn" class="answer-copy" title="Скопировать ответ текстом — например, чтобы вставить в письмо" aria-label="Копировать ответ">' +
+      '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v6.5A1.5 1.5 0 0 0 4 11h1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>' +
+      '<span>Копировать</span></button>';
+    const det = $('details', box);
+    det.addEventListener('toggle', () => storeSet(ANSWER_KEY, det.open ? '1' : '0'));
+  }
+  function answerText() {
+    const r = state.result; if (!r) return '';
+    const lines = answerLines(r);
+    return answerHead(r, lines) + '.\n' + lines.map((l) => '• ' + l.text).join('\n');
+  }
+  async function copyAnswer() {
+    const ok = await copyText(answerText());
+    flash($('#copyAnswerBtn'), ok ? 'Скопировано' : 'Не удалось', ok);
+  }
+
   // ---------- вкладки ----------
   function selectTab(name) {
     const tabs = $$('.tabs .tab');
@@ -669,11 +935,11 @@
     const r = state.result; if (!r) return [];
     return r.rows.map((x, i) => i).filter((i) => !r.rows[i].stable && r.series.A.some((row) => row[i] > 0));
   }
-  function seriesStyle(k) {
-    const pal = PALETTE[isDark() ? 'dark' : 'light'];
-    const css = getComputedStyle(document.documentElement);
+  /** Цвет и штрих серии k; theme — 'light' для файла (иначе по теме страницы). */
+  function seriesStyle(k, theme) {
+    const pal = PALETTE[theme || (isDark() ? 'dark' : 'light')];
     const slot = k % pal.length;
-    const color = css.getPropertyValue('--series-' + (slot + 1)).trim() || pal[slot];
+    const color = (theme ? '' : getComputedStyle(document.documentElement).getPropertyValue('--series-' + (slot + 1)).trim()) || pal[slot];
     return { color, dash: DASHES[Math.floor(k / pal.length) % DASHES.length] };
   }
   function swatchStyle(st) {
@@ -735,18 +1001,88 @@
     g.clearRect(0, 0, W, H);
     const css = getComputedStyle(document.documentElement);
     const v = (...names) => { for (const n of names) { const x = css.getPropertyValue(n).trim(); if (x) return x; } return ''; };
-    const ink = v('--ink', '--text') || '#1c2127';
-    const muted = v('--chart-text', '--ink-2', '--muted') || '#4e5864';
-    const grid = v('--chart-grid', '--rule', '--line') || '#e7e9ed';
-    const axis = v('--chart-axis', '--rule-strong') || '#a3abb5';
-    const panel = v('--chart-bg', '--pane', '--panel') || '#ffffff';
-    const font = '12px ' + (v('--font-ui') || 'system-ui, "Segoe UI", sans-serif');
+    chart.geo = paintChart(g, W, H, {
+      ink: v('--ink', '--text') || '#1c2127',
+      muted: v('--chart-text', '--ink-2', '--muted') || '#4e5864',
+      grid: v('--chart-grid', '--rule', '--line') || '#e7e9ed',
+      axis: v('--chart-axis', '--rule-strong') || '#a3abb5',
+      panel: v('--chart-bg', '--pane', '--panel') || '#ffffff',
+      font: '12px ' + (v('--font-ui') || 'system-ui, "Segoe UI", sans-serif'),
+      hover: state.hover,
+    });
+  }
+  const CHART_SCALE_KEY = 'halflife.chartScale';
+  function renderChartScale(unitRu) {
+    const lin = state.chartScale === 'lin';
+    $$('.chart-scale .fmt').forEach((b) => { const a = b.dataset.scale === state.chartScale; b.classList.toggle('active', a); b.setAttribute('aria-pressed', String(a)); });
+    const r = state.result;
+    const u = unitRu || (ACT_UNITS[r ? r.actUnit : actUnit()] || ACT_UNITS[DEFAULT_ACT]).ru;
+    const note = $('#tp-chart .toolbar-note'); if (note) note.textContent = `A(t), ${u}, ${lin ? 'обычная' : 'логарифмическая'} шкала`;
+    const btn = $('#chartPngBtn'); if (btn) btn.disabled = !r;
+  }
+  function setChartScale(v) {
+    state.chartScale = v === 'lin' ? 'lin' : 'log';
+    storeSet(CHART_SCALE_KEY, state.chartScale === 'lin' ? 'lin' : null);
+    renderChartScale();
+    drawChart();
+  }
+  /** График для файла: светлый, с заголовком и подписями серий; 1100×640 при масштабе 2. Возвращает Promise<Blob>. */
+  function chartPngBlob() {
+    const r = state.result; if (!r) return Promise.resolve(null);
+    const W = 1100, H = 640, k = 2;
+    const cv = document.createElement('canvas'); cv.width = W * k; cv.height = H * k;
+    const g = cv.getContext('2d'); g.scale(k, k);
+    g.fillStyle = CHART_FILE.panel; g.fillRect(0, 0, W, H);
+    const fam = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim() || 'system-ui, "Segoe UI", sans-serif';
+    const font = '13px ' + fam, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
+    g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillStyle = CHART_FILE.ink; g.font = '600 16px ' + fam;
+    g.fillText('Активность изотопов: ' + r.roots.join(', '), 20, 14);
+    g.fillStyle = CHART_FILE.muted; g.font = font;
+    g.fillText(`A(t), ${u}, ${state.chartScale === 'lin' ? 'обычная' : 'логарифмическая'} шкала · выдержка ${r.holdText}`, 20, 38);
+    // подписи серий: строки по ширине картинки
+    const all = chartSeries();
+    const items = all.filter((i) => !state.hidden[r.rows[i].name]).map((i) => ({ k: all.indexOf(i), name: r.rows[i].name }));
+    const rows = [[]]; let w = 0;
+    for (const it of items) {
+      it.w = 30 + g.measureText(it.name).width + 18;
+      if (w + it.w > W - 40 && rows[rows.length - 1].length) { rows.push([]); w = 0; }
+      rows[rows.length - 1].push(it); w += it.w;
+    }
+    const legH = items.length ? rows.length * 22 + 12 : 0;
+    g.save(); g.translate(10, 62);
+    paintChart(g, W - 20, H - 62 - legH, Object.assign({ font, hover: null }, CHART_FILE));
+    g.restore();
+    rows.forEach((row, n) => {
+      let x = 20; const y = H - legH + 6 + n * 22;
+      for (const it of row) {
+        const st = seriesStyle(it.k, 'light');
+        g.strokeStyle = st.color; g.lineWidth = 2.5; g.setLineDash(st.dash); g.beginPath(); g.moveTo(x, y + 8); g.lineTo(x + 22, y + 8); g.stroke();
+        g.setLineDash([]); g.fillStyle = CHART_FILE.ink; g.textBaseline = 'middle'; g.font = font; g.fillText(it.name, x + 30, y + 8);
+        x += it.w;
+      }
+    });
+    return new Promise((resolve, reject) => cv.toBlob((b) => (b ? resolve(b) : reject(new Error('не удалось получить PNG'))), 'image/png'));
+  }
+  async function downloadChartPng() {
+    if (!state.result) return;
+    try { const b = await chartPngBlob(); if (b) await saveBlob(b, baseName() + '-график.png', 'image/png'); } catch (e) { errorDlg('Ошибка сохранения', e); }
+  }
+  /** Цвета графика для файла PNG — всегда светлые, на белом фоне. */
+  const CHART_FILE = { ink: '#1c2127', muted: '#4e5864', grid: '#e7e9ed', axis: '#a3abb5', panel: '#ffffff', theme: 'light' };
+  /**
+   * Рисует график результата в области W×H контекста g. o: {ink, muted, grid, axis, panel, font, hover, theme}.
+   * Шкала по вертикали — state.chartScale ('log' или 'lin'). Возвращает геометрию осей (для курсора) или null.
+   */
+  function paintChart(g, W, H, o) {
+    const { ink, muted, grid, axis, panel, font } = o;
+    const sty = (k) => seriesStyle(k, o.theme);
+    const lin = state.chartScale === 'lin';
     g.font = font;
     g.fillStyle = muted;
     const r = state.result;
-    chart.geo = null;
-    const msg = (t) => { g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, W / 2, H / 2); };
-    if (!r) return; // подсказку «График появится после расчёта» показывает вёрстка
+    const msg = (t) => { g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, W / 2, H / 2); return null; };
+    if (!r) return null; // подсказку «График появится после расчёта» показывает вёрстка
     const all = chartSeries();
     const shown = all.filter((i) => !state.hidden[r.rows[i].name]);
     const span = r.chartSec || r.tSec, f = r.actF || 1, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
@@ -759,19 +1095,40 @@
     const hi = Math.ceil(Math.log10(vmax) + 1e-9);
     let lo = Math.floor(Math.log10(vmin));
     lo = Math.max(lo, hi - 12); if (hi - lo < 2) lo = hi - 2;
-    const L = 58, R = 14, T = 12, B = 40;
+    // обычная шкала: от 0 до «круглого» значения не меньше максимума
+    const ystep = lin ? niceStep(vmax / 5) : 0;
+    const top = lin ? Math.ceil(vmax / ystep - 1e-9) * ystep : 0;
+    // подписи обычной шкалы — в одном виде: 250 000 или 0,25·10⁶ (общая степень для больших и малых чисел)
+    const ex = lin && (top >= 1e5 || top < 1e-2) ? Math.floor(Math.log10(top)) : null;
+    const ylab = lin ? (v) => (v === 0 ? '0' : ex == null ? fmt(v, 3) : String(Number((v / Math.pow(10, ex)).toPrecision(3))).replace('.', ',') + '·' + pow10(ex)) : null;
+    let L = 58;
+    if (lin) {
+      g.font = font;
+      let wmax = 0; for (let k = 0; k * ystep <= top * 1.0001; k++) wmax = Math.max(wmax, g.measureText(ylab(k * ystep)).width);
+      L = Math.max(58, Math.ceil(wmax) + 34); // слева ещё подпись оси «A, Бк»
+    }
+    const R = 14, T = 12, B = 40;
     const pw = W - L - R, ph = H - T - B;
     const sc = UNITS[r.unit].sec, tmax = span / sc;
     const x = (tu) => L + pw * tu / tmax;
-    const y = (v) => { const lv = v > 0 ? Math.max(Math.log10(v), lo) : lo; return T + ph * (hi - lv) / (hi - lo); };
+    const y = lin ? (v) => T + ph * (1 - Math.max(v, 0) / top)
+      : (v) => { const lv = v > 0 ? Math.max(Math.log10(v), lo) : lo; return T + ph * (hi - lv) / (hi - lo); };
     // сетка и оси
     g.lineWidth = 1; g.strokeStyle = grid; g.fillStyle = muted;
-    const estep = Math.max(1, Math.ceil((hi - lo) / Math.max(2, Math.floor(ph / 28))));
     g.textAlign = 'right'; g.textBaseline = 'middle';
-    for (let e = hi; e >= lo; e -= estep) {
-      const yy = Math.round(y(Math.pow(10, e))) + 0.5;
-      g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke();
-      g.fillText(pow10(e), L - 6, yy);
+    if (lin) {
+      for (let k = 0; k * ystep <= top * 1.0001; k++) {
+        const yy = Math.round(y(k * ystep)) + 0.5;
+        g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke();
+        g.fillText(ylab(k * ystep), L - 6, yy);
+      }
+    } else {
+      const estep = Math.max(1, Math.ceil((hi - lo) / Math.max(2, Math.floor(ph / 28))));
+      for (let e = hi; e >= lo; e -= estep) {
+        const yy = Math.round(y(Math.pow(10, e))) + 0.5;
+        g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke();
+        g.fillText(pow10(e), L - 6, yy);
+      }
     }
     const step = niceStep(tmax / Math.max(2, Math.floor(pw / 90)));
     g.textAlign = 'center'; g.textBaseline = 'top';
@@ -793,21 +1150,21 @@
     g.lineWidth = 2; g.lineJoin = 'round'; g.lineCap = 'round';
     g.save(); g.beginPath(); g.rect(L, T - 2, pw, ph + 4); g.clip();
     for (const i of shown) {
-      const st = seriesStyle(all.indexOf(i));
+      const st = sty(all.indexOf(i));
       g.strokeStyle = st.color; g.setLineDash(st.dash); g.beginPath();
       r.series.t.forEach((t, p) => { const xx = x(t / sc), yy = y(r.series.A[p][i] / f); if (p) g.lineTo(xx, yy); else g.moveTo(xx, yy); });
       g.stroke();
     }
     g.restore(); g.setLineDash([]);
-    chart.geo = { L, T, pw, ph, x, y, sc, tmax };
+    const geo = { L, T, pw, ph, x, y, sc, tmax };
     // курсор и подсказка
-    const p = state.hover;
+    const p = o.hover;
     if (p != null && p >= 0 && p < r.series.t.length) {
       const tu = r.series.t[p] / sc, xx = Math.round(x(tu)) + 0.5;
       g.strokeStyle = axis; g.lineWidth = 1; g.beginPath(); g.moveTo(xx, T); g.lineTo(xx, T + ph); g.stroke();
       const items = shown.map((i) => ({ i, v: r.series.A[p][i] / f })).filter((it) => it.v > 0).sort((a, b) => b.v - a.v);
       for (const it of items) {
-        const st = seriesStyle(all.indexOf(it.i));
+        const st = sty(all.indexOf(it.i));
         g.beginPath(); g.arc(xx, y(it.v), 4, 0, 2 * Math.PI); g.fillStyle = st.color; g.fill();
         g.lineWidth = 2; g.strokeStyle = panel; g.stroke();
       }
@@ -826,10 +1183,11 @@
       g.fillText(head, bx + 10, by + 6);
       lines.forEach((l, n) => {
         const ly = by + 24 + n * 17;
-        if (l.k >= 0) { g.fillStyle = seriesStyle(l.k).color; g.fillRect(bx + 10, ly + 4, 8, 8); }
+        if (l.k >= 0) { g.fillStyle = sty(l.k).color; g.fillRect(bx + 10, ly + 4, 8, 8); }
         g.fillStyle = l.k >= 0 ? ink : muted; g.fillText(l.text, bx + (l.k >= 0 ? 22 : 10), ly);
       });
     }
+    return geo;
   }
   function roundRect(g, x, y, w, h, r) {
     g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
@@ -898,8 +1256,8 @@
   }
 
   // ---------- документ ----------
-  function markDirty() { if (!state.dirty) { state.dirty = true; updateTitle(); } }
-  function setClean() { state.dirty = false; updateTitle(); }
+  function markDirty() { if (!state.dirty) { state.dirty = true; updateTitle(); } scheduleDraft(); }
+  function setClean() { state.dirty = false; updateTitle(); clearDraft(); hideDraftNote(); }
   function updateTitle() {
     const dn = $('#docName'); if (dn) { dn.textContent = state.name; dn.title = state.path || state.name; }
     show($('#dirty'), state.dirty);
@@ -930,6 +1288,7 @@
       extra.purity = { target: state.target, limitPercent: lim != null ? Number((lim * 100).toPrecision(10)) : null, countProgeny: !!state.countProgeny };
     }
     if (state.unc.uA || state.unc.uT || state.unc.useIaea) extra.uncertainty = Object.assign({}, state.unc);
+    if (state.gen) extra.generator = JSON.parse(JSON.stringify(state.gen));
     return JSON.stringify(Object.assign({
       format: FILE_FORMAT, version: FILE_VERSION, app: APP_TITLE + ' ' + APP_VERSION, saved: new Date().toISOString(),
       roots: state.roots.slice(), activities, activityUnit: ACT_UNITS[actUnit()].ru, hold: h.ok ? h.value : $('#hold').value, holdUnit: h.unit,
@@ -971,12 +1330,25 @@
     const un = d.uncertainty && typeof d.uncertainty === 'object' ? d.uncertainty : {};
     const pct = (v) => (typeof v === 'number' && v >= 0 && v <= 100 ? v : 0);
     state.unc = { uA: pct(un.uA), uT: pct(un.uT), useIaea: !!un.useIaea };
+    state.gen = validGen(d.generator);
     state.result = null;
     setLocked(false);
     renderInput();
     renderResult();
     showError('');
     setRootError(warn.length ? 'Не найдено в базе и пропущено: ' + warn.join(', ') + '.' : '');
+  }
+
+  /** Настройки генератора из файла (или null, если их нет или они испорчены). */
+  function validGen(g) {
+    if (!g || typeof g !== 'object') return null;
+    const num = (v, lo, hi) => typeof v === 'number' && isFinite(v) && v >= lo && v <= hi;
+    if (!num(g.interval, 0, 1e9) || !num(g.count, 1, 1000) || !UNITS[g.unit]) return null;
+    const eff = {};
+    for (const [el, v] of Object.entries(g.eff || {})) if (/^[A-Z][a-z]?$/.test(el) && num(v, 0, 100) && v > 0) eff[el] = v;
+    const out = { interval: g.interval, unit: g.unit, count: Math.floor(g.count), eff };
+    if (num(g.first, 0, 1e9)) out.first = g.first;
+    return out;
   }
 
   async function confirmDiscard() {
@@ -986,6 +1358,7 @@
       buttons: [{ label: 'Сохранить', value: 'save', primary: true }, { label: 'Не сохранять', value: 'discard' }, { label: 'Отмена', value: 'cancel' }],
     });
     if (r === 'save') return await cmdSave(false);
+    if (r === 'discard') clearDraft();
     return r === 'discard';
   }
 
@@ -995,7 +1368,7 @@
     rebuildSet();
     setHold(DEFAULT_HOLD, DEFAULT_UNIT);
     setActUnit(DEFAULT_ACT); setExtra(''); state.dates = null; renderDates();
-    state.target = ''; state.countProgeny = false; setLimit(0.1); state.unc = { uA: 0, uT: 0, useIaea: false };
+    state.target = ''; state.countProgeny = false; setLimit(0.1); state.unc = { uA: 0, uT: 0, useIaea: false }; state.gen = null;
     state.result = null;
     state.name = UNTITLED; state.handle = null; state.path = null;
     setLocked(false);
@@ -1029,6 +1402,7 @@
     try { applyData(d); } catch (e) { errorDlg('Не удалось открыть файл', e); return false; }
     state.name = name || UNTITLED; state.handle = (where && where.handle) || null; state.path = (where && where.path) || null;
     setClean();
+    if (where) addRecent(serialize());
     return true;
   }
 
@@ -1040,16 +1414,16 @@
         const res = await host.saveFile({ path: as ? null : state.path, suggestedName: suggested, data,
           filters: [{ name: 'Расчёт полураспада', extensions: ['hlc'] }] });
         if (!res) return false;
-        state.path = res.path; state.name = res.name; setClean(); return true;
+        state.path = res.path; state.name = res.name; setClean(); addRecent(data); return true;
       }
       if (window.showSaveFilePicker && !android && !window.HLSaveHook) {
         let h = as ? null : state.handle;
         if (!h) h = await window.showSaveFilePicker({ suggestedName: suggested, types: [{ description: 'Расчёт полураспада', accept: { 'application/json': [FILE_EXT] } }] });
         const w = await h.createWritable(); await w.write(data); await w.close();
-        state.handle = h; state.name = h.name; setClean(); return true;
+        state.handle = h; state.name = h.name; setClean(); addRecent(data); return true;
       }
       const ok = await saveBlob(new Blob([data], { type: HLC_MIME }), suggested, HLC_MIME);
-      if (ok) { state.name = suggested; setClean(); }
+      if (ok) { state.name = suggested; setClean(); addRecent(data); }
       return ok;
     } catch (e) {
       if (e && e.name === 'AbortError') return false;
@@ -1102,6 +1476,146 @@
     });
   }
 
+  // ---------- черновик и недавние расчёты ----------
+  // Черновик: несохранённый расчёт держится в localStorage и возвращается после перезагрузки страницы,
+  // закрытия вкладки или падения программы. Снимается при сохранении, «Новом» и ответе «Не сохранять».
+  // Недавние: копии последних сохранённых и открытых расчётов (до RECENT_MAX) — открыть одним щелчком.
+  const DRAFT_KEY = 'halflife.draft';
+  const RECENT_KEY = 'halflife.recent';
+  const RECENT_MAX = 8;
+  const RECENT_MAX_TEXT = 300000;
+  let draftTimer = 0, draftTime = 0; // draftTime — время последней правки (не расчёта)
+  function scheduleDraft(edit) { if (edit !== false) draftTime = Date.now(); clearTimeout(draftTimer); draftTimer = setTimeout(writeDraft, 400); }
+  function writeDraft() {
+    clearTimeout(draftTimer); draftTimer = 0;
+    if (!state.dirty) return;
+    let text; try { text = serialize(); } catch (e) { return; }
+    storeSet(DRAFT_KEY, JSON.stringify({ v: 1, text, name: state.name, path: state.path || null, calc: !!state.result, time: draftTime || Date.now() }));
+  }
+  function flushDraft() { if (draftTimer) writeDraft(); }
+  function clearDraft() { clearTimeout(draftTimer); draftTimer = 0; storeSet(DRAFT_KEY, null); }
+
+  /** При запуске: вернуть несохранённый расчёт, если он остался. */
+  function restoreDraft(raw) {
+    if (!raw) return false;
+    let d = null; try { d = JSON.parse(raw); } catch (e) { d = null; }
+    if (!d || d.v !== 1 || typeof d.text !== 'string') { storeSet(DRAFT_KEY, null); return false; }
+    try { applyData(JSON.parse(d.text)); } catch (e) { storeSet(DRAFT_KEY, null); resetDoc(); return false; }
+    state.name = typeof d.name === 'string' && d.name ? d.name : UNTITLED;
+    state.path = host && typeof d.path === 'string' ? d.path : null; state.handle = null;
+    state.dirty = true; updateTitle();
+    draftTime = Number(d.time) || Date.now();
+    storeSet(DRAFT_KEY, raw); // resetDoc при запуске снял черновик — возвращаем, пока не сохранили
+    if (d.calc) calc();
+    showDraftNote(d.time);
+    return true;
+  }
+  function showDraftNote(time) {
+    let n = $('#draftNote');
+    if (!n) {
+      n = document.createElement('div'); n.id = 'draftNote'; n.className = 'draft-note'; n.setAttribute('role', 'status');
+      const intro = $('.intro'), main = $('main');
+      if (intro) intro.after(n); else if (main) main.prepend(n); else return;
+      n.addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-draft]'); if (!b) return;
+        if (b.dataset.draft === 'reset') {
+          // восстановленный расчёт пропадёт без следа — переспрашиваем
+          if (state.dirty) {
+            const r = await dialog({ title: 'Начать заново', html: '<p>Удалить восстановленный расчёт и начать новый? Вернуть его будет нельзя.</p>',
+              buttons: [{ label: 'Начать заново', value: 'ok', primary: true }, { label: 'Отмена', value: 'cancel' }] });
+            if (r !== 'ok') return;
+          }
+          resetDoc();
+        }
+        hideDraftNote();
+      });
+    }
+    const when = fmtWhen(time);
+    n.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1-6.2 6.2M1.8 3.2V8h4.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 4.6V8l2.4 1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      `<p><b>Восстановлен несохранённый расчёт</b>${when ? ' (' + esc(when) + ')' : ''}. Сохраните его, если он нужен, или начните заново.</p>` +
+      '<div class="draft-actions"><button type="button" data-draft="reset">Начать заново</button>' +
+      '<button type="button" class="draft-x" data-draft="hide" aria-label="Скрыть сообщение" title="Скрыть"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>';
+    n.hidden = false;
+  }
+  function hideDraftNote() { const n = $('#draftNote'); if (n) n.hidden = true; }
+
+  function fmtWhen(ms) {
+    const d = new Date(ms); if (!ms || isNaN(d.getTime())) return '';
+    const now = new Date();
+    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const day = (x) => x.getFullYear() + '-' + x.getMonth() + '-' + x.getDate();
+    if (day(d) === day(now)) return 'сегодня, ' + time;
+    const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (day(d) === day(y)) return 'вчера, ' + time;
+    const o = { day: 'numeric', month: 'long' }; if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
+    return d.toLocaleDateString('ru-RU', o) + ', ' + time;
+  }
+
+  function readRecent() {
+    let a; try { a = JSON.parse(storeGet(RECENT_KEY) || '[]'); } catch (e) { a = []; }
+    return Array.isArray(a) ? a.filter((r) => r && typeof r.text === 'string' && typeof r.name === 'string') : [];
+  }
+  function writeRecent(list) {
+    if (!list.length) { storeSet(RECENT_KEY, null); return; }
+    list = list.slice(0, RECENT_MAX);
+    // хранилище переполнено — убираем самые старые
+    while (list.length && !storeSet(RECENT_KEY, JSON.stringify(list))) list = list.slice(0, -1);
+  }
+  // в браузере пути нет: разные расчёты под одним именем «расчёт.hlc» различаем по изотопам
+  const recentKey = (r) => (r.path ? 'p:' + r.path : 'n:' + r.name + '|' + String(r.sum || '').split(' · ')[0]);
+  function addRecent(text) {
+    if (typeof text !== 'string' || !text || text.length > RECENT_MAX_TEXT) return;
+    const h = readHold();
+    const sum = (state.roots.length ? state.roots.join(', ') : 'без изотопов') + (h.ok ? ' · ' + holdText(h.value, h.unit) : '');
+    const r = { name: state.name, path: (host && state.path) || null, time: Date.now(), sum, text };
+    const k = recentKey(r);
+    writeRecent([r, ...readRecent().filter((x) => recentKey(x) !== k)]);
+  }
+  function recentHtml(list) {
+    if (!list.length) return '<p class="recent-empty">Здесь появятся расчёты, которые вы сохраняли или открывали на этом устройстве.</p>';
+    return '<ul class="recent-list">' + list.map((r, i) =>
+      `<li><button type="button" class="recent-open" data-open="${i}" title="${esc(r.path || r.name)}">` +
+      `<span class="recent-name">${esc(r.name)}</span><span class="recent-sub">${esc(r.sum || '')}</span>` +
+      `<span class="recent-time">${esc(fmtWhen(r.time))}</span></button>` +
+      `<button type="button" class="recent-del" data-del="${i}" aria-label="Убрать «${esc(r.name)}» из списка" title="Убрать из списка">` +
+      '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></li>').join('') + '</ul>';
+  }
+  async function cmdRecent() {
+    let list = readRecent();
+    const render = () => {
+      const box = $('#recentBox'); if (box) box.innerHTML = recentHtml(list);
+      const clr = $('#dlg button[value="clear"]'); if (clr) clr.disabled = !list.length;
+    };
+    const p = dialog({
+      title: 'Недавние расчёты',
+      html: '<p class="recent-note">Последние расчёты, которые вы сохраняли или открывали. Открывается копия данных на момент сохранения.</p><div id="recentBox"></div>',
+      buttons: [{ label: 'Закрыть', value: 'cancel', primary: true }, { label: 'Очистить список', value: 'clear' }],
+    });
+    render();
+    const body = $('#dlgBody');
+    const onClick = (e) => {
+      const o = e.target.closest('[data-open]'), del = e.target.closest('[data-del]');
+      if (o) { $('#dlg').close('open:' + o.dataset.open); return; }
+      if (del) {
+        const i = Number(del.dataset.del); list.splice(i, 1); writeRecent(list); render();
+        const next = $(`#recentBox [data-open="${Math.min(i, list.length - 1)}"]`); if (next) next.focus();
+      }
+    };
+    body.addEventListener('click', onClick);
+    const r = await p;
+    body.removeEventListener('click', onClick);
+    if (r === 'clear') {
+      const ok = await dialog({ title: 'Очистить список', html: `<p>Убрать из списка все расчёты (${list.length})? Сами файлы не удаляются.</p>`,
+        buttons: [{ label: 'Очистить', value: 'ok', primary: true }, { label: 'Отмена', value: 'cancel' }] });
+      if (ok === 'ok') writeRecent([]); else cmdRecent();
+      return;
+    }
+    const m = /^open:(\d+)$/.exec(r || ''); if (!m) return;
+    const item = list[Number(m[1])]; if (!item) return;
+    if (!(await confirmDiscard())) return;
+    loadText(item.text, item.name, { path: host ? item.path : null, recent: true });
+  }
+
   // ---------- экспорт в Excel ----------
   function buildWorkbook() {
     const r = state.result;
@@ -1137,7 +1651,8 @@
       [],
       [b('Цепочка'), b('Изотоп'), b('T½'), b('T½, с'), b('λ, 1/с'), b('Источник T½'), b('A₀, ' + u), b('N₀, атомов'),
         b(extraT.length ? `A(${r.holdText}), ${u}` : 'A(t), ' + u), b(extraT.length ? `N(${r.holdText}), атомов` : 'N(t), атомов'),
-        ...extraT.map((t) => b(`A(${t.text}), ${u}`)), ...(unc ? [b(`±95 % для A(${r.holdText}), %`)] : []), ...(pm ? [b('Примесь, %')] : [])],
+        ...extraT.map((t) => b(`A(${t.text}), ${u}`)), ...(unc ? [b(`±95 % для A(${r.holdText}), %`)] : []), ...(pm ? [b('Примесь, %')] : []),
+        ...(AM ? [b(extraT.length ? `m(${r.holdText}), г` : 'm(t), г')] : [])],
     );
     const groups = groupsOf(r.rows, r.roots);
     for (const g of groups) for (const x of g.items) {
@@ -1145,7 +1660,8 @@
       res.push([g.root, x.name, C.fmtHalfLife(x.T), x.stable ? '' : x.T, x.lambda, x.stable ? 'стабильный' : srcName(x),
         x.stable ? '' : x.A0 / f, x.N0, x.stable ? '' : x.A / f, x.N, ...extraT.map((t) => (x.stable ? '' : t.A[i] / f)),
         ...(unc ? [x.stable ? '' : unc.A[mainIdx][i].rel * 100] : []),
-        ...(pm ? [x.name === state.target ? 'цель' : x.stable ? '' : pm.share[i] * 100] : [])]);
+        ...(pm ? [x.name === state.target ? 'цель' : x.stable ? '' : pm.share[i] * 100] : []),
+        ...(AM ? [AM.gramsFromAtoms(x.N, x.name)] : [])]);
     }
     res.push([]);
     const sumT = (items, t) => items.reduce((s, x) => s + (x.stable ? 0 : t.A[r.rows.indexOf(x)]), 0) / f;
@@ -1158,7 +1674,7 @@
     r.series.t.forEach((t, p) => dyn.push([t / sc, t, ...idx.map((i) => r.series.A[p][i] / f)]));
 
     const sheets = [
-      { name: 'Результат', rows: res, widths: [22, 11, 16, 13, 13, 14, 13, 13, 13, 13, ...extraT.map(() => 15), ...(unc ? [14] : []), ...(pm ? [12] : [])] },
+      { name: 'Результат', rows: res, widths: [22, 11, 16, 13, 13, 14, 13, 13, 13, 13, ...extraT.map(() => 15), ...(unc ? [14] : []), ...(pm ? [12] : []), ...(AM ? [14] : [])] },
       { name: 'Динамика', rows: dyn, widths: [12, 13, ...idx.map(() => 13)] },
     ];
     if (F && F.text) {
@@ -1222,9 +1738,25 @@
       form.addEventListener('keydown', onKey);
       dlg.addEventListener('close', onClose);
       dlg.showModal();
+      keyboardScroll(body);
       const f = opts.focus && $(opts.focus, dlg);
       if (f) { f.focus(); if (f.select) f.select(); }
     });
+  }
+  // Прокручиваемую область без кнопок и полей нельзя пролистать с клавиатуры: даём ей фокус (Tab, затем стрелки).
+  const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]';
+  let tabPressed = false;
+  function keyboardScroll(body) {
+    const needsFocus = (el) => (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && !el.querySelector(FOCUSABLE);
+    $$('.table-wrap', body).forEach((el) => { if (needsFocus(el)) el.tabIndex = 0; });
+    // Тело окна получает фокус при открытии (autofocus, без рамки); рамку показываем, только когда до него дошли клавишей Tab.
+    body.tabIndex = needsFocus(body) ? 0 : -1;
+    if (body._kbdBound) return;
+    body._kbdBound = true;
+    document.addEventListener('keydown', (e) => { tabPressed = e.key === 'Tab'; }, true);
+    document.addEventListener('pointerdown', () => { tabPressed = false; }, true);
+    body.addEventListener('focus', () => body.classList.toggle('kbd-focus', tabPressed));
+    body.addEventListener('blur', () => body.classList.remove('kbd-focus'));
   }
   function errorDlg(title, e) {
     const msg = e && e.message ? e.message : String(e || '');
@@ -1368,6 +1900,98 @@
     const r = await pr;
     if (r === 'apply' && found && found.t > 0) applyHold(found.t);
   }
+  // ---------- обратный расчёт: A₀ по измерению ----------
+  async function cmdBackCalc() {
+    const T = 'Пересчёт от измерения';
+    if (!TL) return;
+    const names = state.set.filter((x) => x.lambda > 0).map((x) => x.name);
+    if (!names.length) { dialog({ title: T, html: '<p>Сначала добавьте изотоп: пересчёт идёт по его цепочке распада.</p>' }); return; }
+    const { A0, bad } = currentA0Bq();
+    const tableOk = !bad.length && Object.values(A0).some((v) => v > 0);
+    const h = readHold();
+    const roots = state.roots.filter((r) => names.includes(r));
+    const nz = Object.keys(A0).filter((n) => A0[n] > 0);
+    // прошлые значения окна — только для того же набора родоначальников
+    const key = state.roots.join('|');
+    const last = state.backLast && state.backLast.key === key && names.includes(state.backLast.name) ? state.backLast : null;
+    const def = last || {
+      name: names.includes(state.target) ? state.target : state.roots.find((r) => names.includes(r)) || names[0],
+      a: '', au: actUnit(), t: h.ok && h.value > 0 ? fmtInput(h.value) : '1', tu: h.ok && h.value > 0 ? h.unit : 'd',
+      from: tableOk && (nz.length > 1 || !roots.includes(nz[0])) ? 'table' : 'root:' + (nz.length === 1 && roots.includes(nz[0]) ? nz[0] : roots[0] || names[0]),
+      hold: false,
+    };
+    const fromOpts = (roots.length ? roots : names.slice(0, 1)).map((r) => [`root:${r}`, `только ${r} (остальных — 0)`]);
+    if (tableOk) fromOpts.push(['table', 'все, пропорционально таблице']);
+    if (!fromOpts.some(([v]) => v === def.from)) def.from = fromOpts[0][0];
+    const opt = (list, cur) => list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('');
+    const actOpts = Object.keys(ACT_UNITS).map((k) => [k, ACT_UNITS[k].ru]);
+    const tOpts = UNIT_ORDER.map((k) => [k, UNITS[k].ru]);
+    const html = '<p>Измерили активность не вначале, а позже? Укажите, какой изотоп, сколько и через какое время измерили, — ' +
+      'программа найдёт, какой была начальная активность, и подставит её в таблицу.</p>' +
+      '<div class="find-grid bc-grid">' +
+      `<label for="bcName">Измерили</label><select id="bcName">${opt(names.map((n) => [n, n]), def.name)}</select>` +
+      `<label for="bcA">Активность</label><span class="inp-unit"><input id="bcA" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.a)}" placeholder="например, 5000"><select id="bcAU" aria-label="Единица активности">${opt(actOpts, def.au)}</select></span>` +
+      `<label for="bcT">Через</label><span class="inp-unit"><input id="bcT" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.t)}"><select id="bcTU" aria-label="Единица времени">${opt(tOpts, def.tu)}</select></span>` +
+      `<label for="bcFrom">Что было вначале</label><select id="bcFrom">${opt(fromOpts, def.from)}</select>` +
+      '</div>' +
+      `<label class="check-line"><input type="checkbox" id="bcHold"${def.hold ? ' checked' : ''}> поставить выдержку равной этому времени и сразу рассчитать (для проверки)</label>` +
+      '<p id="bcOut" class="find-out" role="status"></p>';
+    let res = null;
+    const pr = dialog({
+      title: T, html, focus: '#bcA',
+      buttons: [{ label: 'Подставить в таблицу', value: 'apply', primary: true }, { label: 'Отмена', value: 'cancel' }],
+      validate: (v) => (v === 'apply' ? !!(res && res.ok) : true),
+    });
+    const out = $('#bcOut');
+    const applyBtn = $('#dlg button[value="apply"]');
+    const read = () => ({
+      name: $('#bcName').value, a: $('#bcA').value, au: $('#bcAU').value, t: $('#bcT').value, tu: $('#bcTU').value,
+      from: $('#bcFrom').value, hold: $('#bcHold').checked, key,
+    });
+    function update() {
+      const v = read();
+      state.backLast = v;
+      res = null;
+      const a = parseNum(v.a), t = parseNum(v.t);
+      let msg = '', badMsg = false;
+      if (a === null) msg = 'Введите измеренную активность.';
+      else if (isNaN(a) || a <= 0) { msg = 'Активность — число больше нуля, например 5000 или 1,5E6.'; badMsg = true; }
+      else if (t === null || isNaN(t) || t < 0) { msg = 'Время — число не меньше нуля.'; badMsg = true; }
+      else {
+        const base = {};
+        if (v.from === 'table') Object.assign(base, A0);
+        else base[v.from.slice(5)] = 1;
+        res = TL.backCalc(state.set, base, v.name, t * UNITS[v.tu].sec, a * ACT_UNITS[v.au].f);
+        if (!res.ok) { msg = res.reason; badMsg = true; } else {
+          const f = ACT_UNITS[actUnit()].f, u = ACT_UNITS[actUnit()].ru;
+          const list = Object.keys(res.A0).filter((n) => res.A0[n] > 0);
+          msg = (list.length === 1 ? 'Начальная активность ' : 'Начальные активности: ') +
+            list.slice(0, 6).map((n) => `${n} — ${fmt(res.A0[n] / f)} ${u}`).join('; ') + (list.length > 6 ? `; ещё ${list.length - 6}` : '') + '.';
+          if (list.length === 1 && list[0] === v.name) msg += ` Поправка на распад: ×${fmt(res.A0[v.name] / (a * ACT_UNITS[v.au].f), 4)}.`;
+        }
+      }
+      out.textContent = msg; out.classList.toggle('bad', badMsg);
+      if (applyBtn) applyBtn.disabled = !(res && res.ok);
+    }
+    $('#dlgBody').addEventListener('input', update);
+    $('#dlgBody').addEventListener('change', update);
+    update();
+    const r = await pr;
+    if (r !== 'apply' || !res || !res.ok) return;
+    const v = read();
+    if (state.locked) setLocked(false);
+    const f = ACT_UNITS[actUnit()].f;
+    for (const x of state.set) {
+      if (!(x.lambda > 0)) continue;
+      const val = res.A0[x.name] > 0 ? res.A0[x.name] / f : 0;
+      state.activities[x.name] = fmtInput(Number(val.toPrecision(6)));
+    }
+    renderInputTable();
+    if (v.hold) { clearDates(); setHold(parseNum(v.t), v.tu); }
+    changed();
+    if (v.hold) calc();
+  }
+
   /** Ставит найденную выдержку (с датами — сдвигает дату использования) и сразу считает. */
   function applyHold(tSec) {
     if (state.locked) setLocked(false);
@@ -1419,6 +2043,425 @@
     else return;
     markDirty();
     renderResult();
+  }
+
+  // ---------- генератор с многократными отборами ----------
+  const GEN_UNITS = ['min', 'h', 'd', 'y'];
+  const GEN_COLS = 6; // изотопов элюата в таблице окна (остальные — в «прочие» и в Excel)
+  /** Элементы набора с радиоактивными изотопами и значения окна по умолчанию. */
+  function genDefaults() {
+    const radio = new Set(state.set.filter((x) => x.lambda > 0).map((x) => x.name));
+    const els = TL.elementsOf(state.set).map((e) => ({ el: e.el, names: e.names.filter((n) => radio.has(n)) })).filter((e) => e.names.length);
+    const g = state.gen || {};
+    const eff = {};
+    if (g.eff) for (const e of els) if (g.eff[e.el] > 0) eff[e.el] = g.eff[e.el];
+    if (!Object.keys(eff).length) {
+      // по умолчанию извлекается элемент целевого изотопа, иначе — первого радиоактивного дочернего другого элемента
+      let el = state.target && radio.has(state.target) ? TL.elementOf(state.target) : '';
+      if (!el) {
+        const rootEls = new Set(state.roots.map(TL.elementOf));
+        const d = state.set.find((x) => x.lambda > 0 && !rootEls.has(TL.elementOf(x.name)));
+        el = d ? TL.elementOf(d.name) : '';
+      }
+      if (el) eff[el] = 100;
+    }
+    return {
+      els, eff, unit: GEN_UNITS.includes(g.unit) ? g.unit : 'd',
+      interval: typeof g.interval === 'number' ? g.interval : 10, first: typeof g.first === 'number' ? g.first : null,
+      count: typeof g.count === 'number' ? g.count : 10,
+    };
+  }
+  /** График активностей на генераторе (логарифмическая шкала; зубцы — моменты отборов). */
+  function plotGenerator(cv, s, idx, names, sc, unitRu, f, actRu, marks) {
+    if (!cv || !cv.clientWidth) return;
+    const W = cv.clientWidth, H = cv.clientHeight || 220;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const css = getComputedStyle(document.documentElement);
+    const v = (...n) => { for (const x of n) { const y = css.getPropertyValue(x).trim(); if (y) return y; } return ''; };
+    const muted = v('--chart-text', '--ink-2') || '#4e5864', grid = v('--chart-grid', '--rule') || '#e7e9ed', axis = v('--chart-axis', '--rule-strong') || '#a3abb5';
+    g.font = '12px ' + (v('--font-ui') || 'system-ui, sans-serif');
+    let vmax = 0, vmin = Infinity;
+    for (const i of idx) for (const row of s.A) { const a = row[i] / f; if (a > vmax) vmax = a; if (a > 0 && a < vmin) vmin = a; }
+    if (!(vmax > 0)) return;
+    const hi = Math.ceil(Math.log10(vmax) + 1e-9);
+    let lo = Math.max(Math.floor(Math.log10(vmin)), hi - 10); if (hi - lo < 2) lo = hi - 2;
+    const L = 58, R = 12, T = 10, B = 38, pw = W - L - R, ph = H - T - B;
+    const tmax = s.t[s.t.length - 1] / sc || 1;
+    const x = (tu) => L + pw * tu / tmax;
+    const y = (a) => T + ph * (hi - (a > 0 ? Math.max(Math.log10(a), lo) : lo)) / (hi - lo);
+    g.lineWidth = 1; g.strokeStyle = grid; g.fillStyle = muted; g.textAlign = 'right'; g.textBaseline = 'middle';
+    const estep = Math.max(1, Math.ceil((hi - lo) / Math.max(2, Math.floor(ph / 26))));
+    for (let e = hi; e >= lo; e -= estep) { const yy = Math.round(y(Math.pow(10, e))) + 0.5; g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke(); g.fillText(pow10(e), L - 6, yy); }
+    const step = niceStep(tmax / Math.max(2, Math.floor(pw / 90)));
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    for (let tu = 0; tu <= tmax * 1.0001; tu += step) { const xx = Math.round(x(tu)) + 0.5; g.beginPath(); g.moveTo(xx, T); g.lineTo(xx, T + ph); g.stroke(); g.fillText(fmt(tu, 4), xx, T + ph + 6); }
+    g.fillText('t, ' + unitRu, L + pw / 2, T + ph + 21);
+    g.strokeStyle = axis; g.beginPath(); g.moveTo(L + 0.5, T); g.lineTo(L + 0.5, T + ph + 0.5); g.lineTo(W - R, T + ph + 0.5); g.stroke();
+    g.save(); g.translate(13, T + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('A, ' + actRu, 0, 0); g.restore();
+    if (marks && marks.length <= 40) {
+      g.save(); g.setLineDash([3, 4]); g.strokeStyle = axis;
+      for (const m of marks) { const xx = Math.round(x(m / sc)) + 0.5; g.beginPath(); g.moveTo(xx, T); g.lineTo(xx, T + ph); g.stroke(); }
+      g.restore();
+    }
+    g.save(); g.beginPath(); g.rect(L, T - 2, pw, ph + 4); g.clip();
+    g.lineWidth = 2; g.lineJoin = 'round';
+    idx.forEach((i, k) => {
+      const st = seriesStyle(k); g.strokeStyle = st.color; g.setLineDash(st.dash); g.beginPath();
+      s.t.forEach((t, p) => { const xx = x(t / sc), yy = y(s.A[p][i] / f); if (p) g.lineTo(xx, yy); else g.moveTo(xx, yy); });
+      g.stroke();
+    });
+    g.restore();
+  }
+  async function cmdGenerator() {
+    const T = 'Генератор: многократные отборы';
+    if (!TL || !TL.generator) return;
+    if (!state.set.length) { dialog({ title: T, html: '<p>Добавьте изотоп-родоначальник генератора (например, Th-229 или Th-228) и задайте его активность.</p>' }); return; }
+    const { A0, bad } = currentA0Bq();
+    if (bad.length || !Object.values(A0).some((a) => a > 0)) { dialog({ title: T, html: '<p>Сначала задайте начальные активности в таблице: генератор считается по ним.</p>' }); return; }
+    const au = actUnit(), f = ACT_UNITS[au].f, u = ACT_UNITS[au].ru;
+    const def = genDefaults();
+    const unitOpts = (sel) => GEN_UNITS.map((k) => `<option value="${k}"${k === sel ? ' selected' : ''}>${UNITS[k].ru}</option>`).join('');
+    const html = '<p>Исходная смесь — изотопы и начальные активности из таблицы. В каждый момент отбора из генератора химически ' +
+      'извлекается указанная доля изотопов выбранных элементов (элюат); остальное остаётся на генераторе и продолжает распадаться.</p>' +
+      '<div class="gen-grid">' +
+      `<label for="genInterval">Интервал между отборами</label><span class="inp-unit"><input id="genInterval" type="text" inputmode="decimal" autocomplete="off" value="${esc(fmtInput(def.interval))}"><select id="genUnit" aria-label="Единица времени">${unitOpts(def.unit)}</select></span>` +
+      `<label for="genFirst">Первый отбор через</label><span class="inp-unit"><input id="genFirst" type="text" inputmode="decimal" autocomplete="off" placeholder="как интервал" value="${def.first == null ? '' : esc(fmtInput(def.first))}"><span id="genUnitLbl">${UNITS[def.unit].ru}</span></span>` +
+      `<label for="genCount">Число отборов</label><input id="genCount" type="text" inputmode="numeric" autocomplete="off" value="${esc(String(def.count))}">` +
+      '</div>' +
+      '<p class="gen-els-head"><b>Что извлекается при отборе, %</b> <span class="note">(пусто — элемент остаётся на генераторе)</span></p>' +
+      '<div class="gen-els">' + def.els.map((e) => `<label class="gen-el" title="${esc(e.names.join(', '))}"><span class="gen-el-name"><b>${esc(e.el)}</b>` +
+        `<small>${esc(e.names.length > 2 ? e.names.slice(0, 2).join(', ') + '…' : e.names.join(', '))}</small></span>` +
+        `<input class="gen-eff" data-el="${esc(e.el)}" type="text" inputmode="decimal" autocomplete="off" aria-label="Доля ${esc(e.el)}, %" value="${def.eff[e.el] ? esc(fmtInput(def.eff[e.el])) : ''}" placeholder="0"></label>`).join('') +
+      '</div>' +
+      '<p class="msg error" id="genErr" role="alert" hidden></p><div id="genOut" class="gen-out"></div>';
+    let last = null;
+    const setBtns = () => { $$('#dlg button[value="xlsx"], #dlg button[value="use"]').forEach((b) => { b.disabled = !last; }); };
+    const fail = (m) => { const e = $('#genErr'); e.textContent = m; e.hidden = false; $('#genOut').innerHTML = ''; last = null; setBtns(); };
+    function read() {
+      const unit = $('#genUnit').value, sc = UNITS[unit].sec;
+      const iv = parseNum($('#genInterval').value), fv = parseNum($('#genFirst').value), cv = parseNum($('#genCount').value);
+      if (cv === null || isNaN(cv) || cv < 1 || cv > 1000 || Math.floor(cv) !== cv) return 'Число отборов — целое число от 1 до 1000.';
+      if (iv === null || isNaN(iv) || iv < 0 || (cv > 1 && !(iv > 0))) return 'Интервал между отборами — положительное число.';
+      if (fv !== null && (isNaN(fv) || fv < 0)) return 'Время первого отбора — число не меньше нуля.';
+      const eff = {}, effPct = {};
+      for (const inp of $$('#dlgBody .gen-eff')) {
+        const p = parseNum(inp.value);
+        if (p === null) continue;
+        if (isNaN(p) || p < 0 || p > 100) return `Доля ${inp.dataset.el} — число от 0 до 100 %.`;
+        if (p > 0) { eff[inp.dataset.el] = p / 100; effPct[inp.dataset.el] = p; }
+      }
+      if (!Object.keys(eff).length) return 'Укажите хотя бы один элемент, который извлекается при отборе (доля больше 0 %).';
+      const first = fv === null ? iv : fv;
+      if (cv === 1 && !(first > 0) && fv === null) return 'Задайте интервал или время первого отбора.';
+      return { unit, sc, interval: iv, first: fv, count: cv, eff, effPct, opts: { eff, interval: iv * sc, count: cv, first: first * sc } };
+    }
+    function runGen() {
+      $('#genErr').hidden = true;
+      const p = read();
+      if (typeof p === 'string') { fail(p); return; }
+      let res;
+      try { res = TL.generator(state.set, A0, p.opts); } catch (e) { fail(e.message); return; }
+      const gNew = { interval: p.interval, unit: p.unit, count: p.count, eff: p.effPct };
+      if (p.first !== null) gNew.first = p.first;
+      if (JSON.stringify(gNew) !== JSON.stringify(state.gen)) { state.gen = gNew; markDirty(); }
+      // изотопы элюата: по убыванию максимальной активности
+      const set = state.set;
+      const maxA = set.map((x, i) => Math.max(...res.eluate.map((row) => row[i])));
+      const cols = set.map((x, i) => i).filter((i) => set[i].lambda > 0 && maxA[i] > 0).sort((a, b) => maxA[b] - maxA[a]);
+      if (!cols.length) { fail('В выбранных элементах нет изотопов с активностью: элюат пуст.'); return; }
+      const shown = cols.slice(0, GEN_COLS), rest = cols.slice(GEN_COLS);
+      last = { res, p, cols, set };
+      const main = cols[0];
+      const total = res.eluate.reduce((s2, row) => s2 + row[main], 0);
+      const un = UNITS[p.unit].ru;
+      const tTxt = (sec) => fmt(sec / p.sc, 4);
+      const effTxt = Object.entries(p.effPct).map(([el, v]) => `${el} ${fmtInput(v)} %`).join(', ');
+      let sum = `<p class="gen-sum">Отборов: <b>${p.count}</b>` + (p.count > 1 ? `, каждые ${tTxt(p.opts.interval)} ${un}` : '') +
+        `, первый через ${tTxt(p.opts.first)} ${un}; извлекается ${esc(effTxt)}. ` +
+        `${esc(set[main].name)} в элюате: от ${fmt(Math.min(...res.eluate.map((r) => r[main])) / f)} до ${fmt(Math.max(...res.eluate.map((r) => r[main])) / f)} ${u}` +
+        (p.count > 1 ? `, всего за ${p.count} ${plural(p.count, ['отбор', 'отбора', 'отборов'])} ${fmt(total / f)} ${u}` : '') + ' (активности на момент отбора).</p>';
+      // на графике: родоначальники, прямые предшественники извлекаемых изотопов и сами извлекаемые
+      const keep = new Set(shown);
+      for (const i of shown) for (const pa of set[i].parents) if (set[pa.j].lambda > 0) keep.add(pa.j);
+      set.forEach((x, i) => { if (x.lambda > 0 && state.roots.includes(x.name)) keep.add(i); });
+      const plotIdx = Array.from(keep).sort((a2, b2) => a2 - b2).slice(0, 10);
+      sum += '<canvas id="genChart" class="gen-chart" aria-label="Активность на генераторе во времени"></canvas>' +
+        `<p class="gen-legend">${plotIdx.map((i, k) => `<span><i class="swatch" style="${swatchStyle(seriesStyle(k))}"></i> ${esc(set[i].name)}</span>`).join('')}<span class="note">на генераторе; зубцы — отборы</span></p>`;
+      const head = `<tr><th class="num">№</th><th class="num">Отбор через, ${un}</th>` + shown.map((i) => `<th class="num">${esc(set[i].name)}, ${u}</th>`).join('') +
+        (rest.length ? `<th class="num">прочие (${rest.length}), ${u}</th>` : '') + (cols.length > 1 ? `<th class="num">Всего, ${u}</th>` : '') + '</tr>';
+      const MAXROWS = 200;
+      const body = res.times.slice(0, MAXROWS).map((t, k) => {
+        const row = res.eluate[k];
+        const other = rest.reduce((s2, i) => s2 + row[i], 0), all = cols.reduce((s2, i) => s2 + row[i], 0);
+        return `<tr><td class="num">${k + 1}</td><td class="num">${tTxt(t)}</td>` + shown.map((i) => `<td class="num">${fmt(row[i] / f)}</td>`).join('') +
+          (rest.length ? `<td class="num">${fmt(other / f)}</td>` : '') + (cols.length > 1 ? `<td class="num">${fmt(all / f)}</td>` : '') + '</tr>';
+      }).join('');
+      const more = res.times.length > MAXROWS ? `<p class="note">Показаны первые ${MAXROWS} отборов из ${res.times.length}; все — в Excel.</p>` : '';
+      const pick = `<div class="gen-use"><label for="genPick">Элюат отбора №</label><select id="genPick">${res.times.map((t, k) => `<option value="${k}"${k === res.times.length - 1 ? ' selected' : ''}>${k + 1} (${tTxt(t)} ${un})</option>`).join('')}</select>` +
+        '<span class="note">«Элюат в расчёт» откроет его как новый расчёт: выдержка, чистота, протокол.</span></div>';
+      $('#genOut').innerHTML = sum + `<div class="table-wrap"><table class="grid gen-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>` + more + pick;
+      plotGenerator($('#genChart'), res.series, plotIdx, null, p.sc, un, f, u, p.count > 1 ? res.times : null);
+      setBtns();
+      const so = $('#genOut .gen-sum'); if (so && so.scrollIntoView) so.scrollIntoView({ block: 'nearest' });
+    }
+    function genWorkbook() {
+      const { res, p, cols, set } = last;
+      const un = UNITS[p.unit].ru;
+      const radio = set.map((x, i) => i).filter((i) => set[i].lambda > 0);
+      const info = [
+        [{ v: 'Генератор: многократные отборы', bold: true }],
+        ['Исходная смесь', Object.entries(A0).filter(([, a]) => a > 0).map(([n, a]) => `${n} ${fmt(a / f)} ${u}`).join('; ')],
+        ['Интервал, ' + un, p.interval], ['Первый отбор через, ' + un, p.opts.first / p.sc], ['Число отборов', p.count],
+        ['Извлекается', Object.entries(p.effPct).map(([el, v]) => `${el} ${fmtInput(v)} %`).join('; ')],
+        ['Активности', `${u}, на момент отбора`], [],
+      ];
+      const h1 = ['№', 'Отбор через, ' + un].concat(cols.map((i) => `${set[i].name}, ${u}`), ['Всего, ' + u]).map((v) => ({ v, bold: true }));
+      const rows1 = res.times.map((t, k) => [k + 1, t / p.sc].concat(cols.map((i) => res.eluate[k][i] / f), [cols.reduce((s2, i) => s2 + res.eluate[k][i], 0) / f]));
+      const h2 = ['№', 'Отбор через, ' + un].concat(radio.map((i) => `${set[i].name}, ${u}`)).map((v) => ({ v, bold: true }));
+      const rows2 = res.times.map((t, k) => [k + 1, t / p.sc].concat(radio.map((i) => res.before[k][i] / f)));
+      return window.HLXlsx.build([
+        { name: 'Элюат', rows: info.concat([h1], rows1), widths: [22, 16].concat(cols.map(() => 14), [14]) },
+        { name: 'Генератор перед отбором', rows: [[{ v: 'Активности на генераторе непосредственно перед каждым отбором', bold: true }], []].concat([h2], rows2), widths: [8, 16].concat(radio.map(() => 13)) },
+      ]);
+    }
+    const pr = dialog({
+      title: T, html, wide: true, focus: '#genInterval',
+      buttons: [{ label: 'Рассчитать', value: 'run', primary: true }, { label: 'Excel', value: 'xlsx' }, { label: 'Элюат в расчёт', value: 'use' }, { label: 'Закрыть', value: 'cancel' }],
+      validate: (v) => {
+        if (v === 'run') { runGen(); return false; }
+        if (v === 'xlsx') { if (last) saveBlob(genWorkbook(), baseName() + '-генератор.xlsx', XLSX_MIME).catch((e) => errorDlg('Ошибка экспорта', e)); return false; }
+        if (v === 'use') return !!last;
+        return true;
+      },
+    });
+    setBtns();
+    $('#genUnit').addEventListener('change', () => { $('#genUnitLbl').textContent = UNITS[$('#genUnit').value].ru; });
+    if (state.gen) runGen();
+    const r = await pr;
+    if (r !== 'use' || !last) return;
+    const k = Number(($('#genPick') || {}).value) || 0;
+    await useEluate(last, Math.min(Math.max(k, 0), last.res.times.length - 1));
+  }
+  /** Открывает элюат отбора k как новый расчёт (активности на момент отбора). */
+  async function useEluate(g, k) {
+    if (!(await confirmDiscard())) return;
+    const { res, cols, set } = g;
+    const au = actUnit(), f = ACT_UNITS[au].f;
+    const names = cols.map((i) => set[i].name);
+    const order = set.map((x) => x.name).filter((n) => names.includes(n));
+    const activities = {};
+    for (const n of order) activities[n] = Number((res.eluate[k][set.findIndex((x) => x.name === n)] / f).toPrecision(10));
+    const main = set[cols[0]].name;
+    const h = readHold();
+    const lim = limitFrac();
+    const overrides = {};
+    for (const [n, o] of Object.entries(state.overrides)) if (o && o.T != null) overrides[n] = { T: o.T };
+    try {
+      applyData({
+        format: FILE_FORMAT, roots: order, activities, actUnit: au, hold: h.ok ? h.value : DEFAULT_HOLD, holdUnit: h.ok ? h.unit : DEFAULT_UNIT,
+        purity: { target: order.includes(state.target) ? state.target : main, limitPercent: lim != null ? lim * 100 : 0.1, countProgeny: state.countProgeny },
+        overrides,
+      });
+    } catch (e) { errorDlg('Элюат не открыт', e); return; }
+    state.gen = null;
+    state.name = `элюат ${k + 1}`; state.handle = null; state.path = null;
+    markDirty(); updateTitle();
+    calc();
+  }
+
+  // ---------- масса и удельная активность ----------
+  const AMOUNT_KEY = 'halflife.amount';
+  const AMOUNT_MODES = ['N', 'm', 'mol'];
+  function amountModeGet() { try { const v = localStorage.getItem(AMOUNT_KEY); return AMOUNT_MODES.includes(v) && AM ? v : 'N'; } catch (e) { return 'N'; } }
+  function cycleAmount() {
+    const next = AMOUNT_MODES[(AMOUNT_MODES.indexOf(state.amount) + 1) % AMOUNT_MODES.length];
+    state.amount = next;
+    try { localStorage.setItem(AMOUNT_KEY, next); } catch (e) { /* без хранилища режим живёт до перезагрузки */ }
+    renderResult();
+    const b = $('#amountBtn'); if (b) b.focus();
+  }
+  /** Последний столбец результата: число атомов, масса или количество вещества. */
+  function amountColumn(r, tLabel) {
+    const mode = AM ? state.amount : 'N';
+    if (mode === 'm') {
+      const g = r.rows.map((x) => AM.gramsFromAtoms(x.N, x.name));
+      const mu = AM.massUnit(Math.max(...g));
+      return { head: `m(${tLabel}), ${mu.ru}`, cells: g.map((v) => [v / mu.f, `${full(v)} г`]) };
+    }
+    if (mode === 'mol') return { head: `n(${tLabel}), моль`, cells: r.rows.map((x) => [x.N / AM.NA, `${full(x.N / AM.NA)} моль`]) };
+    return { head: `N(${tLabel}), атомов`, cells: r.rows.map((x) => [x.N, `${full(x.N)} атомов`]) };
+  }
+  const MASS_INPUT_UNITS = ['g', 'mg', 'ug', 'ng', 'pg'];
+  async function cmdMass() {
+    const T = 'Масса и активность';
+    if (!AM) return;
+    const radio = Object.keys(DB).filter((n) => DB[n][0] != null).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+    const inSet = state.set.filter((x) => x.lambda > 0).map((x) => x.name);
+    const def = (state.massLast && DB[state.massLast.name]) ? state.massLast : { name: state.target || inSet[0] || 'Th-229', from: 'G', A: '', AU: actUnit(), G: '1', GU: 'mg' };
+    const mu = (k) => AM.MASS_UNITS.find((u) => u.key === k) || AM.MASS_UNITS[1];
+    const html = '<p>Пересчёт активности чистого нуклида в массу и обратно: A = λ·N, N = m·N<sub>A</sub>/M. ' +
+      'Атомные массы — AME 2020.</p>' +
+      `<div class="mass-grid"><label for="massName">Изотоп</label><input id="massName" type="text" list="massNames" autocomplete="off" spellcheck="false" value="${esc(def.name)}">` +
+      `<datalist id="massNames">${inSet.concat(radio.filter((n) => !inSet.includes(n))).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>` +
+      `<label for="massA">Активность</label><span class="inp-unit"><input id="massA" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.A)}">` +
+      `<select id="massAU" aria-label="Единица активности">${Object.entries(ACT_UNITS).map(([k, v]) => `<option value="${k}"${k === def.AU ? ' selected' : ''}>${v.ru}</option>`).join('')}</select></span>` +
+      `<label for="massG">Масса</label><span class="inp-unit"><input id="massG" type="text" inputmode="decimal" autocomplete="off" value="${esc(def.G)}">` +
+      `<select id="massGU" aria-label="Единица массы">${MASS_INPUT_UNITS.map((k) => `<option value="${k}"${k === def.GU ? ' selected' : ''}>${mu(k).ru}</option>`).join('')}</select></span>` +
+      '</div><div id="massOut" class="mass-out" role="status"></div><p class="msg error" id="massErr" role="alert" hidden></p>';
+    let from = def.from === 'G' ? 'G' : 'A';
+    let cur = null; // {name, A (Бк)}
+    function update() {
+      const err = $('#massErr'); err.hidden = true;
+      const out = $('#massOut');
+      cur = null;
+      const name = C.normalizeName($('#massName').value);
+      if (!name) { out.innerHTML = ''; err.textContent = 'Такого изотопа нет в базе. Пример: Th-229, ra226, 225Ac.'; err.hidden = !$('#massName').value.trim(); return; }
+      const T12 = DB[name][0];
+      if (T12 == null) { out.innerHTML = `<p>${esc(name)} стабилен: у него нет активности.</p>`; return; }
+      const lambda = Math.LN2 / ((state.overrides[name] && state.overrides[name].T) || T12);
+      const mm = AM.molarMass(name);
+      const sa = AM.specificActivity(name, lambda);
+      const aF = ACT_UNITS[$('#massAU').value].f, gF = mu($('#massGU').value).f;
+      let A = null, g = null;
+      if (from === 'A') {
+        const v = parseNum($('#massA').value);
+        if (v !== null && !isNaN(v) && v >= 0) { A = v * aF; g = A / sa; $('#massG').value = fmtInput(Number((g / gF).toPrecision(6))); }
+        else if (v !== null) { err.textContent = 'Активность — неотрицательное число.'; err.hidden = false; }
+      } else {
+        const v = parseNum($('#massG').value);
+        if (v !== null && !isNaN(v) && v >= 0) { g = v * gF; A = g * sa; $('#massA').value = fmtInput(Number((A / aF).toPrecision(6))); }
+        else if (v !== null) { err.textContent = 'Масса — неотрицательное число.'; err.hidden = false; }
+      }
+      let h = `<p><b>${esc(name)}</b>: T½ = ${esc(C.fmtHalfLife(Math.LN2 / lambda))}${state.overrides[name] ? ' (ваше значение)' : ''}; ` +
+        `M = ${fmt(mm.M, 9)} г/моль${mm.exact ? '' : ' (массовое число)'}.<br>Удельная активность: <b>${fmt(sa)} Бк/г</b> = ${fmt(sa / 3.7e10)} Ки/г.</p>`;
+      if (A != null) {
+        const N = g * AM.NA / mm.M;
+        h += `<p>${fmt(A)} Бк = ${fmt(A / 3.7e10)} Ки; масса ${fmt(g)} г; ${fmt(N)} атомов; ${fmt(N / AM.NA)} моль.</p>`;
+        cur = { name, A };
+      }
+      out.innerHTML = h;
+      state.massLast = { name, from, A: $('#massA').value, AU: $('#massAU').value, G: $('#massG').value, GU: $('#massGU').value };
+    }
+    const pr = dialog({
+      title: T, html, focus: from === 'A' ? '#massA' : '#massG',
+      buttons: [{ label: 'Задать A₀ в таблице', value: 'use', primary: true }, { label: 'Закрыть', value: 'cancel' }],
+      validate: (v) => {
+        if (v !== 'use') return true;
+        update();
+        if (!cur) { const e = $('#massErr'); e.textContent = 'Укажите изотоп и активность или массу.'; e.hidden = false; return false; }
+        return true;
+      },
+    });
+    $('#massA').addEventListener('input', () => { from = 'A'; update(); });
+    $('#massG').addEventListener('input', () => { from = 'G'; update(); });
+    // смена единицы пересчитывает число в этом поле из другого поля, физическая величина не меняется
+    $('#massAU').addEventListener('change', () => { from = 'G'; update(); });
+    $('#massGU').addEventListener('change', () => { from = 'A'; update(); });
+    $('#massName').addEventListener('input', update);
+    update();
+    const r = await pr;
+    if (r !== 'use' || !cur) return;
+    putActivity(cur.name, cur.A);
+  }
+  /** Записывает A₀ (Бк) изотопу в таблице; если его нет в наборе, добавляет как родоначальника. */
+  function putActivity(name, Abq) {
+    if (state.locked) setLocked(false);
+    if (!state.set.some((x) => x.name === name)) {
+      addRoots(name);
+      if (!state.set.some((x) => x.name === name)) return;
+    }
+    state.activities[name] = fmtInput(Number((Abq / ACT_UNITS[actUnit()].f).toPrecision(10)));
+    changed();
+    renderInput();
+    const inp = $$('#inputTable input[data-name]').find((i) => i.dataset.name === name);
+    if (inp) { inp.focus(); if (inp.select) inp.select(); }
+  }
+
+  // ---------- схема распада ----------
+  /** Данные для картинки: набор, цепочки и подписи активностей (результат на основной срок или A₀ из таблицы). */
+  function schemeData() {
+    const r = state.result;
+    if (r && r.set && r.rows) {
+      const times = r.times;
+      const mainIdx = times ? Math.max(0, times.findIndex((t) => t.main)) : 0;
+      const f = r.actF || 1, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
+      const values = r.rows.map((x, i) => {
+        if (x.stable) return x.N > 0 ? 'N = ' + fmt(times ? times[mainIdx].N[i] : x.N, 3) : '';
+        const A = times ? times[mainIdx].A[i] : x.A;
+        return A > 0 ? 'A = ' + fmt(A / f, 3) + ' ' + u : '';
+      });
+      return { set: r.set, roots: r.roots, values, note: `Активность через ${r.holdText}${times && times.length > 1 ? ' (основной срок)' : ''}.` };
+    }
+    const u = ACT_UNITS[actUnit()].ru;
+    let any = false;
+    const values = state.set.map((x) => {
+      if (!(x.lambda > 0)) return '';
+      const v = parseNum(state.activities[x.name]);
+      if (v === null || isNaN(v) || !(v > 0)) return '';
+      any = true; return 'A₀ = ' + fmt(v, 3) + ' ' + u;
+    });
+    return { set: state.set, roots: state.roots, values, note: any ? 'Начальная активность из таблицы; после расчёта здесь будет активность через выдержку.' : '' };
+  }
+  function schemeSvg(d, standalone) {
+    return SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '', standalone }).svg;
+  }
+  /** PNG из SVG (для вставки в Word и презентации), масштаб 2×. */
+  function svgToPng(svgText, w, h) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+      img.onload = () => {
+        try {
+          const k = 2, cv = document.createElement('canvas');
+          cv.width = Math.ceil(w * k); cv.height = Math.ceil(h * k);
+          const g = cv.getContext('2d'); g.scale(k, k); g.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          cv.toBlob((b) => (b ? resolve(b) : reject(new Error('не удалось получить PNG'))), 'image/png');
+        } catch (e) { URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('не удалось нарисовать схему')); };
+      img.src = url;
+    });
+  }
+  /** PNG схемы для протокола Word: {bytes, width, height} (размер в CSS-пикселях). */
+  async function schemePng() {
+    if (!SCH || !state.roots.length || typeof document === 'undefined') return null;
+    const d = schemeData();
+    const pic = SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '', standalone: true });
+    const blob = await svgToPng(pic.svg, pic.width, pic.height);
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), width: pic.width, height: pic.height };
+  }
+  async function cmdScheme() {
+    if (!SCH) return;
+    if (!state.roots.length) { await dialog({ title: 'Схема распада', html: '<p>Сначала добавьте изотоп: схема рисуется для выбранных цепочек.</p>' }); return; }
+    const d = schemeData();
+    const pic = SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '' });
+    const n = d.set.length, nb = pic.layout.edges.filter((e) => e.br < 0.9995).length;
+    const html = `<p class="scheme-note">${esc(n + ' ' + plural(n, ['изотоп', 'изотопа', 'изотопов']))}` +
+      (nb ? `, ${esc(nb + ' ' + plural(nb, ['ветвь', 'ветви', 'ветвей']))} с долей меньше 100 %` : '') + '. ' +
+      `Подпись у стрелки — тип распада и доля ветвления. ${esc(d.note)}</p>` +
+      `<div class="scheme-wrap" tabindex="0" aria-label="Схема распада, прокручивается">${pic.svg}</div>`;
+    const base = baseName() + '-схема';
+    await dialog({
+      title: 'Схема распада', html, wide: true,
+      buttons: [{ label: 'Закрыть', value: 'ok', primary: true }, { label: 'Скачать SVG', value: 'svg' }, { label: 'Скачать PNG', value: 'png' }],
+      validate: (v) => {
+        if (v === 'svg') {
+          saveBlob(new Blob([schemeSvg(d, true)], { type: 'image/svg+xml' }), base + '.svg', 'image/svg+xml').catch((e) => errorDlg('Ошибка сохранения', e));
+          return false;
+        }
+        if (v === 'png') {
+          svgToPng(schemeSvg(d, true), pic.width, pic.height)
+            .then((b) => saveBlob(b, base + '.png', 'image/png'))
+            .catch((e) => errorDlg('Ошибка сохранения', e));
+          return false;
+        }
+        return true;
+      },
+    });
   }
 
   // ---------- обновление данных IAEA ----------
@@ -1593,7 +2636,9 @@
     }
     let formulas = '';
     if (F && F.text) { try { formulas = F.text(formulaModel()); } catch (e) { formulas = ''; } }
-    return { title: 'Протокол расчёта радиоактивного распада', when: new Date().toLocaleString('ru-RU'), info, inputs, rows, bold, over, purityLine, formulas, wide: head.length > 6 };
+    let summary = [];
+    try { summary = answerLines(state.result).map((l) => l.text); } catch (e) { summary = []; }
+    return { title: 'Протокол расчёта радиоактивного распада', when: new Date().toLocaleString('ru-RU'), info, inputs, rows, bold, over, purityLine, summary, formulas, wide: head.length > 6 };
   }
   async function cmdProtocol() {
     if (!state.result) { dialog({ title: 'Протокол расчёта', html: '<p>Сначала выполните расчёт.</p>' }); return; }
@@ -1607,6 +2652,9 @@
       { table: d.rows.map((row, i) => (d.over.includes(i) ? row.map((v) => ({ v, fill: 'FBE3E1' })) : row)), header: true, boldRows: d.bold,
         alignRight: d.rows[0].map((_, i) => i).filter((i) => i > 0) }];
     if (d.purityLine) blocks.push({ p: d.purityLine, bold: true });
+    if (d.summary.length) blocks.push({ h2: 'Вывод' }, ...d.summary.map((t) => ({ p: '• ' + t })));
+    const pic = await schemePng().catch(() => null); // картинка необязательна: без canvas протокол выйдет без неё
+    if (pic) blocks.push({ h2: 'Схема распада' }, { image: pic.bytes, width: pic.width, height: pic.height, alt: 'Схема распада ' + state.result.roots.join(', ') });
     blocks.push({ h2: 'Модель и формулы' });
     if (d.formulas) blocks.push({ mono: d.formulas });
     blocks.push({ p: '' }, { p: 'Расчёт выполнил: ______________________    Дата: ____________' }, { p: 'Проверил: ______________________    Дата: ____________' });
@@ -1631,6 +2679,8 @@
       `<h2>Исходные данные</h2>${tbl(d.info)}<p><b>Начальные активности</b> (остальные изотопы — 0):</p>${tbl(d.inputs, { header: true, num: 3 })}` +
       `<h2>Результат</h2>${tbl(d.rows, { header: true, bold: d.bold, over: d.over, num: 1 })}` +
       (d.purityLine ? `<p><b>${esc(d.purityLine)}</b></p>` : '') +
+      (d.summary.length ? `<h2>Вывод</h2><ul class="summary">${d.summary.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : '') +
+      (SCH ? `<h2>Схема распада</h2><div class="print-scheme">${schemeSvg(schemeData(), true).replace('class="scheme"', 'class="scheme-file"')}</div>` : '') +
       (d.formulas ? `<h2>Модель и формулы</h2><pre>${esc(d.formulas)}</pre>` : '') +
       '<div class="sign"><div>Расчёт выполнил: ______________________ Дата: ____________</div><div>Проверил: ______________________ Дата: ____________</div></div>';
     $('#printArea').innerHTML = html;
@@ -1664,11 +2714,15 @@
   async function closeRequest() { if (await confirmDiscard()) { state.dirty = false; if (host && host.closeNow) host.closeNow(); } }
   const COMMANDS = {
     new: cmdNew, open: cmdOpen, save: () => cmdSave(false), saveAs: () => cmdSave(true), export: cmdExport,
-    data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout,
+    data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout, recent: cmdRecent, ptable: cmdPtable,
     calc, edit: unlock, preset: loadPreset, closeRequest,
     openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) loadText(f.text, f.name, { path: f.path }); }); },
     tab: selectTab,
     protocol: cmdProtocol, print: cmdPrint, findHold: cmdFindHold, uncertainty: cmdUncertainty, updateData: cmdUpdateData,
+    generator: cmdGenerator,
+    mass: cmdMass,
+    scheme: cmdScheme,
+    backCalc: cmdBackCalc,
   };
   function run(cmd, arg) {
     const f = COMMANDS[cmd];
@@ -1731,6 +2785,8 @@
     if (rootInput) rootInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addRoots(rootInput.value); } });
     if (rootInput) rootInput.addEventListener('input', () => setRootError(''));
     const addBtn = $('#addRootBtn'); if (addBtn) addBtn.addEventListener('click', () => addRoots(rootInput.value));
+    const ptBtn = $('#ptableBtn');
+    if (ptBtn) { if (!EL) ptBtn.hidden = true; else ptBtn.addEventListener('click', () => { const v = rootInput.value.trim(); cmdPtable(v && EL.parse(v) && !EL.parse(v).a ? v : ''); }); }
     const chips = $('#rootChips');
     if (chips) chips.addEventListener('click', (e) => { const b = e.target.closest('[data-remove]'); if (b && !b.disabled) removeRoot(b.dataset.remove); });
 
@@ -1775,7 +2831,10 @@
 
     $$('.tabs .tab').forEach((t) => t.addEventListener('click', () => selectTab(t.dataset.tab)));
     $$('.fmt-tabs .fmt').forEach((b) => b.addEventListener('click', () => { state.fmt = b.dataset.fmt; renderFormulas(); }));
+    $$('.chart-scale .fmt').forEach((b) => b.addEventListener('click', () => setChartScale(b.dataset.scale)));
+    const cpng = $('#chartPngBtn'); if (cpng) cpng.addEventListener('click', downloadChartPng);
     const cb = $('#copyFormulaBtn'); if (cb) cb.addEventListener('click', copyFormulas);
+    const ans = $('#answer'); if (ans) ans.addEventListener('click', (e) => { if (e.target.closest('#copyAnswerBtn')) copyAnswer(); });
     const db = $('#downloadFormulaBtn'); if (db) db.addEventListener('click', downloadFormulas);
 
     const cv = $('#chart');
@@ -1805,7 +2864,9 @@
       if (await confirmDiscard()) openFileObject(f);
     });
 
-    window.addEventListener('beforeunload', (e) => { if (state.dirty && !host) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('beforeunload', (e) => { flushDraft(); if (state.dirty && !host) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('pagehide', flushDraft);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
   }
 
   // ---------- связь с оболочкой (Electron) ----------
@@ -1823,12 +2884,16 @@
     if (android) document.body.classList.add('android');
     if (window.HLNoPrint) { const pi = $('#printItem'); if (pi) pi.hidden = true; }
     loadIaeaUpdate();
+    state.amount = amountModeGet();
+    if (storeGet(CHART_SCALE_KEY) === 'lin') state.chartScale = 'lin';
     fillNuclideList();
     fillPresetMenu();
     bindMenus();
     bindKeys();
     bindUI();
+    const draft = storeGet(DRAFT_KEY); // читаем до resetDoc: он снимает черновик
     resetDoc();
+    restoreDraft(draft);
     selectTab('result');
     if (host) {
       if (host.onCommand) host.onCommand((cmd, arg) => run(cmd, arg));

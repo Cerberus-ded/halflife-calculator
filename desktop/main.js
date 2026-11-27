@@ -36,6 +36,7 @@ function buildMenu() {
     { label: '&Файл', submenu: [
       item('Новый', 'new', 'CmdOrCtrl+N'),
       item('Открыть…', 'open', 'CmdOrCtrl+O'),
+      item('Недавние расчёты…', 'recent'),
       { type: 'separator' },
       item('Сохранить', 'save', 'CmdOrCtrl+S'),
       item('Сохранить как…', 'saveAs', 'CmdOrCtrl+Shift+S'),
@@ -61,11 +62,16 @@ function buildMenu() {
     ] },
     { label: '&Данные', submenu: [
       item('Ядерные данные…', 'data'),
+      item('Таблица Менделеева…', 'ptable'),
       item('Сбросить правки T½', 'resetOverrides'),
       item('Обновить данные IAEA…', 'updateData'),
       { type: 'separator' },
       item('Подбор выдержки…', 'findHold'),
+      item('Генератор: многократные отборы…', 'generator'),
+      item('Пересчёт от измерения…', 'backCalc'),
       item('Погрешность результата…', 'uncertainty'),
+      item('Масса и активность…', 'mass'),
+      item('Схема распада…', 'scheme'),
     ] },
     { label: 'При&меры', submenu: presets.length
       ? presets.map((p) => ({ label: p.title, click: () => send('preset', p.id) }))

@@ -34,6 +34,7 @@
       <div class="menu-list" role="menu">
         <button type="button" role="menuitem" data-cmd="new"><span>Новый</span><kbd>Ctrl+N</kbd></button>
         <button type="button" role="menuitem" data-cmd="open"><span>Открыть…</span><kbd>Ctrl+O</kbd></button>
+        <button type="button" role="menuitem" data-cmd="recent"><span>Недавние расчёты…</span></button>
         <hr>
         <button type="button" role="menuitem" data-cmd="save"><span>Сохранить</span><kbd>Ctrl+S</kbd></button>
         <button type="button" role="menuitem" data-cmd="saveAs"><span>Сохранить как…</span><kbd>Ctrl+Shift+S</kbd></button>
@@ -47,11 +48,16 @@
       <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Данные</button>
       <div class="menu-list" role="menu">
         <button type="button" role="menuitem" data-cmd="data"><span>Ядерные данные…</span></button>
+        <button type="button" role="menuitem" data-cmd="ptable"><span>Таблица Менделеева…</span></button>
         <button type="button" role="menuitem" data-cmd="resetOverrides"><span>Сбросить правки T½</span></button>
         <button type="button" role="menuitem" data-cmd="updateData"><span>Обновить данные IAEA…</span></button>
         <hr>
         <button type="button" role="menuitem" data-cmd="findHold"><span>Подбор выдержки…</span></button>
+        <button type="button" role="menuitem" data-cmd="generator"><span>Генератор: многократные отборы…</span></button>
+        <button type="button" role="menuitem" data-cmd="backCalc"><span>Пересчёт от измерения…</span></button>
         <button type="button" role="menuitem" data-cmd="uncertainty"><span>Погрешность результата…</span></button>
+        <button type="button" role="menuitem" data-cmd="mass"><span>Масса и активность…</span></button>
+        <button type="button" role="menuitem" data-cmd="scheme"><span>Схема распада…</span></button>
       </div>
     </div>
     <div class="menu">
@@ -114,6 +120,10 @@
             <div id="presetMenu" class="preset-list"></div>
           </div>
         </div>
+        <button id="ptableBtn" class="ptable-btn" type="button" title="Выбрать изотоп в таблице Менделеева">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 3h3v3h-3zM11.5 3h3v3h-3zM1.5 7h3v3h-3zM5.5 7h3v3h-3zM11.5 7h3v3h-3zM1.5 11h3v3h-3zM5.5 11h3v3h-3zM8.5 11h3v3h-3zM11.5 11h3v3h-3z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+          Таблица Менделеева
+        </button>
       </div>
     </div>
 
@@ -139,6 +149,10 @@
           <option value="mCi">мКи — милликюри</option>
           <option value="Ci">Ки — кюри</option>
         </select>
+        <button id="backCalcBtn" class="caption-btn" type="button" data-cmd="backCalc" title="Измерили активность через какое-то время — программа найдёт, какой она была вначале">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M2.4 2.2v2.6H5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span>Пересчитать от измерения</span>
+        </button>
       </div>
 
       <div id="emptyState" class="empty">
@@ -267,13 +281,15 @@
 
       <div class="toolbar result-tools">
         <div class="toolbar-actions">
-          <label class="check atoms-toggle"><input type="checkbox" id="showAtoms"> Число атомов</label>
+          <label class="check atoms-toggle"><input type="checkbox" id="showAtoms"> Атомы и масса</label>
           <button id="exportBtn" type="button" data-needs-result disabled>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span>Скачать в Excel</span>
           </button>
         </div>
       </div>
+
+      <div class="answer" id="answer" aria-live="polite" hidden></div>
 
       <div class="purity-bar" id="purityBar" hidden>
         <details class="more" id="purityMore">
@@ -293,7 +309,7 @@
       </div>
       <p id="uncNote" class="unc-note" hidden></p>
 
-      <div class="table-wrap result-wrap">
+      <div class="table-wrap result-wrap" tabindex="0" role="region" aria-label="Таблица результата">
         <table class="grid" id="resultTable">
           <thead>
             <tr><th scope="col">Изотоп</th><th scope="col" class="num">A₀, Бк</th><th scope="col" class="num">A(t), Бк</th><th scope="col" class="num">N(t), атомов</th></tr>
@@ -311,9 +327,19 @@
 
     <div class="tab-panel" data-panel="chart" id="tp-chart" role="tabpanel" aria-labelledby="tab-chart" hidden>
       <div class="toolbar">
-        <p class="panel-note">Как менялась активность каждого изотопа со временем. Шкала по вертикали логарифмическая:
-          так видны и большие, и очень маленькие значения. Снимите галочку, чтобы скрыть линию.</p>
+        <p class="panel-note">Как менялась активность каждого изотопа со временем. Логарифмическая шкала показывает и большие,
+          и очень маленькие значения; обычная — привычные пропорции. Снимите галочку, чтобы скрыть линию.</p>
+        <div class="chart-scale" role="group" aria-label="Шкала по вертикали">
+          <button class="fmt active" type="button" data-scale="log" aria-pressed="true">Логарифмическая</button>
+          <button class="fmt" type="button" data-scale="lin" aria-pressed="false">Обычная</button>
+        </div>
         <span class="toolbar-note">A(t), Бк, логарифмическая шкала</span>
+        <div class="toolbar-actions">
+          <button id="chartPngBtn" type="button" title="Сохранить график картинкой — для отчёта или презентации">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Скачать PNG</span>
+          </button>
+        </div>
       </div>
       <div id="chartLegend" class="legend"></div>
       <div class="chart-box"><canvas id="chart" role="img" aria-label="График активности изотопов со временем"></canvas></div>
@@ -367,8 +393,12 @@
 <script src="formulas.js"></script>
 <script src="xlsx.js"></script>
 <script src="tools.js"></script>
+<script src="masses.js"></script>
+<script src="amount.js"></script>
+<script src="scheme.js"></script>
 <script src="presets.js"></script>
 <script src="help.js"></script>
+<script src="elements.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
