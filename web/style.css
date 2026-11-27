@@ -1,0 +1,716 @@
+/* =====================================================================
+   Калькулятор полураспада — стили интерфейса
+   Владелец файла: ветка «Дизайн». Логика — в app.js (ветка «Код»).
+
+   Идея: строгая настольная программа. Панели пристыкованы к краям окна
+   (как в Maple/Excel), разделены тонкими линиями. Акцент — «черенковский»
+   синий. Заблокированный ввод штрихуется, как разрез на чертеже.
+
+   Состояния, которые понимает CSS (их ставит app.js):
+     .menu.open                        — раскрытое меню
+     .tab.active | [aria-selected=true] — активная вкладка; панели — атрибут hidden
+     .fmt.active | [aria-pressed=true]  — выбранный формат формул
+     #inputPanel.locked  (или #hold:disabled) — ввод заблокирован после расчёта
+     td.t12.overridden                  — T½ изменён пользователем
+     input.invalid | [aria-invalid=true] — неверное число
+     tr.chain / tr.total / tr.stable    — группа цепочки / суммы / стабильный изотоп
+     button.done                        — «Скопировано» (кратко после копирования)
+   Цвета графика для canvas: --series-1…8, --chart-grid, --chart-axis, --chart-text.
+   ===================================================================== */
+
+/* ---------- Токены: светлая тема ---------- */
+:root {
+  color-scheme: light;
+  --window: #e3e6ea;        /* фон окна за панелями */
+  --pane: #ffffff;          /* рабочая поверхность панели */
+  --bar: #f3f4f6;           /* меню, заголовки панелей, панели инструментов */
+  --bar-2: #e9ebee;         /* наведение на элементы панели */
+  --ink: #1c2127;           /* основной текст («свинец») */
+  --ink-2: #4e5864;         /* второстепенный текст */
+  --ink-3: #6f7985;         /* подсказки, подписи */
+  --rule: #d9dde2;          /* линии сетки */
+  --rule-strong: #b4bcc6;   /* рамки полей, линия под шапкой таблицы */
+  --accent: #2a4fd7;        /* черенковский синий */
+  --accent-hover: #2142b8;
+  --accent-on: #ffffff;
+  --accent-soft: #e9eefc;
+  --accent-line: #bccaf4;
+  --accent-ink: #2443b6;
+  --amber: #8f5300;         /* правки пользователя, блокировка */
+  --amber-soft: #fdf2de;
+  --amber-line: #ecd09c;
+  --err: #b3261e;
+  --err-soft: #fcebea;
+  --err-line: #efbbb6;
+  --ok: #1a7f4b;
+  --input: #ffffff;
+  --disabled: #f1f2f4;
+  --chain: #f0f2f6;
+  --total: #f5f6f8;
+  --row-hover: #f6f8fc;
+  --code-bg: #f7f8fa;
+  --code-ink: #1d2430;
+  --hatch: rgba(28, 33, 39, .07);
+  --focus: #2a4fd7;
+  --shadow-menu: 0 10px 28px rgba(18, 24, 33, .16), 0 2px 6px rgba(18, 24, 33, .08);
+  --shadow-dlg: 0 24px 60px rgba(18, 24, 33, .28);
+  --backdrop: rgba(15, 20, 28, .42);
+
+  /* График (canvas читает через getComputedStyle) — палитра проверена на дальтонизм */
+  --chart-bg: #ffffff;
+  --chart-grid: #e7e9ed;
+  --chart-axis: #a3abb5;
+  --chart-text: #4e5864;
+  --series-1: #257de0; --series-2: #f47230; --series-3: #00b894; --series-4: #f2a600;
+  --series-5: #ee7fac; --series-6: #008a17; --series-7: #6a4ce2; --series-8: #ec4647;
+
+  --font-ui: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Roboto, "Noto Sans", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "Roboto Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
+  --ctl-h: 30px;
+  --pad: 14px;
+}
+
+/* ---------- Токены: тёмная тема ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --window: #0f1215; --pane: #181b20; --bar: #1f2329; --bar-2: #282d34;
+    --ink: #e3e7ec; --ink-2: #a6afba; --ink-3: #87919c;
+    --rule: #2c3239; --rule-strong: #46505b;
+    --accent: #7d97ff; --accent-hover: #95abff; --accent-on: #0c1330;
+    --accent-soft: #1e2847; --accent-line: #3a4c8c; --accent-ink: #aabbff;
+    --amber: #f0b45a; --amber-soft: #322710; --amber-line: #6a5122;
+    --err: #ff8f86; --err-soft: #3a1c1c; --err-line: #7a3430; --ok: #5fd39a;
+    --input: #121519; --disabled: #1c2026; --chain: #1f242b; --total: #1c2026; --row-hover: #1e232a;
+    --code-bg: #121519; --code-ink: #dfe5ec; --hatch: rgba(255, 255, 255, .05); --focus: #95abff;
+    --shadow-menu: 0 12px 32px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .35);
+    --shadow-dlg: 0 24px 60px rgba(0, 0, 0, .6); --backdrop: rgba(0, 0, 0, .55);
+    --chart-bg: #181b20; --chart-grid: #2a3037; --chart-axis: #56606b; --chart-text: #a6afba;
+    --series-1: #338ced; --series-2: #e76624; --series-3: #00a888; --series-4: #d28e05;
+    --series-5: #e24d8b; --series-6: #0aac23; --series-7: #9887ef; --series-8: #eb6263;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --window: #0f1215; --pane: #181b20; --bar: #1f2329; --bar-2: #282d34;
+  --ink: #e3e7ec; --ink-2: #a6afba; --ink-3: #87919c;
+  --rule: #2c3239; --rule-strong: #46505b;
+  --accent: #7d97ff; --accent-hover: #95abff; --accent-on: #0c1330;
+  --accent-soft: #1e2847; --accent-line: #3a4c8c; --accent-ink: #aabbff;
+  --amber: #f0b45a; --amber-soft: #322710; --amber-line: #6a5122;
+  --err: #ff8f86; --err-soft: #3a1c1c; --err-line: #7a3430; --ok: #5fd39a;
+  --input: #121519; --disabled: #1c2026; --chain: #1f242b; --total: #1c2026; --row-hover: #1e232a;
+  --code-bg: #121519; --code-ink: #dfe5ec; --hatch: rgba(255, 255, 255, .05); --focus: #95abff;
+  --shadow-menu: 0 12px 32px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .35);
+  --shadow-dlg: 0 24px 60px rgba(0, 0, 0, .6); --backdrop: rgba(0, 0, 0, .55);
+  --chart-bg: #181b20; --chart-grid: #2a3037; --chart-axis: #56606b; --chart-text: #a6afba;
+  --series-1: #338ced; --series-2: #e76624; --series-3: #00a888; --series-4: #d28e05;
+  --series-5: #e24d8b; --series-6: #0aac23; --series-7: #9887ef; --series-8: #eb6263;
+}
+
+/* ---------- Основа ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { margin: 0; }
+body {
+  background: var(--window);
+  color: var(--ink);
+  font: 14px/1.4 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+h2, h3 { margin: 0; }
+svg { flex: none; }
+::selection { background: var(--accent-line); color: var(--ink); }
+
+/* Базовые кнопки и поля — нулевая специфичность через :where, классы ниже их перекрывают */
+:where(button, input, select, textarea) { font: inherit; color: inherit; }
+:where(button) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--ctl-h); padding: 0 12px;
+  border: 1px solid var(--rule-strong); border-radius: 4px;
+  background: var(--pane); color: var(--ink);
+  font-weight: 500; white-space: nowrap; cursor: pointer;
+}
+:where(button:not(:disabled):hover) { background: var(--bar-2); }
+:where(button:disabled) { opacity: .5; cursor: default; }
+:where(button) svg { width: 15px; height: 15px; }
+
+:where(input:not([type]), input[type="text"], input[type="number"], input[type="search"], select) {
+  height: var(--ctl-h); padding: 0 8px;
+  border: 1px solid var(--rule-strong); border-radius: 4px;
+  background: var(--input); color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+:where(input, select):disabled { background: var(--disabled); color: var(--ink-2); cursor: default; }
+:where(input)::placeholder { color: var(--ink-3); opacity: 1; }
+select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 24px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%),
+                    linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 52%, calc(100% - 8.5px) 52%;
+  background-size: 4.5px 4.5px; background-repeat: no-repeat;
+}
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+:where(input, select):focus-visible { outline-offset: 0; border-color: var(--focus); }
+input[type="checkbox"] { accent-color: var(--accent); }
+
+.primary {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-on); font-weight: 600;
+}
+.primary:not(:disabled):hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button.done { color: var(--ok); border-color: currentColor; }
+button.failed { color: var(--err); border-color: currentColor; }
+
+/* Тонкие полосы прокрутки внутри панелей */
+.table-wrap, .code, .dlg-body, .menu-list { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+
+/* ---------- Шапка и меню ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 4px;
+  min-height: calc(34px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+  background: var(--bar); border-bottom: 1px solid var(--rule);
+}
+.brand { width: 18px; height: 18px; margin: 0 6px 0 2px; flex: none; }
+.menubar { display: flex; align-items: center; }
+.menu { position: relative; }
+.menu-btn {
+  height: 26px; padding: 0 10px; border: 0; border-radius: 4px;
+  background: transparent; font-weight: 400;
+}
+.menu-btn:hover, .menu.open > .menu-btn { background: var(--bar-2); }
+.menu-list {
+  display: none; position: absolute; left: 0; top: calc(100% + 4px); z-index: 40;
+  min-width: 250px; max-height: calc(100dvh - 56px); overflow: auto;
+  padding: 4px; background: var(--pane);
+  border: 1px solid var(--rule-strong); border-radius: 6px; box-shadow: var(--shadow-menu);
+}
+.menu.open > .menu-list { display: block; }
+.menu-list button {
+  display: flex; justify-content: space-between; align-items: center; gap: 28px;
+  width: 100%; height: 30px; padding: 0 10px;
+  border: 0; border-radius: 4px; background: transparent;
+  text-align: left; font-weight: 400;
+}
+.menu-list button:not(:disabled):hover,
+.menu-list button:focus-visible { background: var(--accent); color: var(--accent-on); outline: none; }
+.menu-list button:disabled { opacity: 1; color: var(--ink-3); }
+.menu-list kbd { font: inherit; font-size: 12px; color: var(--ink-3); }
+.menu-list button:not(:disabled):hover kbd, .menu-list button:focus-visible kbd { color: inherit; opacity: .8; }
+.menu-list hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 6px; }
+.menu-list-wide { min-width: 340px; max-width: min(440px, calc(100vw - 16px)); }
+
+/* Примеры: app.js кладёт <button data-preset="id"><b>Название</b><small>Описание</small></button> */
+.preset-list button {
+  flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px;
+  height: auto; min-height: 30px; padding: 6px 10px; white-space: normal; line-height: 1.3;
+}
+.preset-list button b, .preset-list button strong { font-weight: 600; }
+.preset-list button small {
+  font-size: 12px; color: var(--ink-3);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.preset-list button:not(:disabled):hover small, .preset-list button:focus-visible small { color: inherit; opacity: .85; }
+.preset-list:empty::before { content: "Примеры не загружены"; display: block; padding: 6px 10px; color: var(--ink-3); }
+
+.doc-title {
+  margin-left: auto; min-width: 0;
+  display: flex; align-items: center; gap: 6px; padding: 0 4px;
+  color: var(--ink-2); font-size: 13px;
+}
+.doc-ico { width: 14px; height: 14px; }
+#docName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dirty { color: var(--amber); font-weight: 700; font-size: 18px; line-height: 1; }
+
+body.electron .topbar { display: none; }
+
+/* ---------- Каркас ---------- */
+.pane { background: var(--pane); display: flex; flex-direction: column; min-width: 0; scroll-margin-top: 72px; }
+.pane-head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  height: 38px; padding: 0 var(--pad);
+  background: var(--bar); border-bottom: 1px solid var(--rule);
+}
+.pane-head h2 { font-size: 13px; font-weight: 600; }
+.pane-body { display: flex; flex-direction: column; min-height: 0; }
+
+/* ---------- Панель ввода ---------- */
+.roots { flex: none; padding: 12px var(--pad); border-bottom: 1px solid var(--rule); }
+.field-label { display: block; margin-bottom: 6px; font-size: 12.5px; font-weight: 600; }
+.root-add { display: flex; gap: 6px; }
+#rootInput { flex: 1; min-width: 0; }
+.hint { margin: 6px 0 0; font-size: 12px; color: var(--ink-3); }
+.roots:has(.chip) .hint { display: none; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chips:empty { display: none; }
+.chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  height: 26px; padding: 0 3px 0 10px; border-radius: 13px;
+  background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line);
+  font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.chip-x {
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; font-size: 15px; line-height: 1; font-weight: 400;
+}
+.chip-x:hover { background: var(--accent-line); }
+.chip-x:disabled { display: none; }
+
+.table-caption {
+  flex: none; display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px var(--pad) 6px; font-size: 12.5px; font-weight: 600;
+}
+.unit { color: var(--ink-3); font-weight: 500; }
+
+/* Пустые состояния: таблица без строк скрывается, подсказка видна */
+.input-wrap:has(tbody:empty),
+.result-wrap:has(tbody:empty),
+#inputPanel:has(#inputTable tbody:empty) .table-caption { display: none; }
+#inputPanel:has(#inputTable tbody:not(:empty)) #emptyState,
+#resultPanel:has(#resultTable tbody:not(:empty)) #resultEmpty { display: none; }
+
+.empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 32px 24px; text-align: center; color: var(--ink-2);
+}
+.empty-ico { width: 44px; height: 44px; margin-bottom: 8px; color: var(--ink-3); }
+.empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+.empty-text { margin: 0; max-width: 42ch; font-size: 13px; line-height: 1.5; }
+
+/* Выдержка и расчёт */
+.calc-bar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px;
+  padding: 10px var(--pad); background: var(--bar); border-top: 1px solid var(--rule);
+}
+.hold { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.hold label { font-weight: 600; margin-right: 2px; }
+#hold { flex: 1 1 76px; min-width: 64px; max-width: 150px; width: 76px; text-align: right; }
+#holdUnit { flex: none; width: 72px; }
+.actions { display: flex; gap: 8px; margin-left: auto; }
+.actions button { height: 34px; padding: 0 14px; }
+#calcBtn { min-width: 124px; font-size: 14px; }
+.calc-bar .msg { flex-basis: 100%; margin: 0; }
+/* Ещё сроки выдержки и выдержка по датам: строки под полем выдержки, кнопки расчёта остаются справа */
+.calc-bar .actions { order: 1; }
+.hold label, .hold-more label { min-width: 70px; }
+.dates-btn { flex: none; padding: 0 10px; }
+.hold-more { order: 2; flex: 1 1 100%; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hold-more label { color: var(--ink-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; margin-right: 2px; }
+#holdExtra { flex: 1 1 auto; min-width: 0; max-width: 266px; }
+.hold-dates { order: 3; flex-basis: 100%; margin: 0; font-variant-numeric: tabular-nums; }
+.calc-bar .msg { order: 4; }
+/* Единица активности в заголовке таблицы ввода */
+.grid thead th.main { color: var(--accent-ink); }
+.unit-select { height: 24px; padding: 0 22px 0 6px; font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+/* Диалог «Выдержка по датам» */
+.date-grid { display: grid; grid-template-columns: auto minmax(0, 240px); justify-content: start; align-items: center; gap: 10px 12px; margin: 14px 0 10px; }
+.date-grid label { font-weight: 600; }
+.date-grid input { height: var(--ctl-h); padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--input); color: var(--ink); min-width: 0; }
+.date-result { margin: 0; font-variant-numeric: tabular-nums; }
+
+.msg {
+  margin: 8px 0 0; padding: 7px 10px; border-radius: 4px;
+  background: var(--err-soft); color: var(--err); border: 1px solid var(--err-line);
+  font-size: 13px; line-height: 1.4;
+}
+
+/* ---------- Таблицы ---------- */
+.table-wrap { overflow: auto; }
+table.grid {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  font-size: 13px; font-variant-numeric: tabular-nums lining-nums;
+}
+.grid th, .grid td {
+  height: 30px; padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left; vertical-align: middle; white-space: nowrap;
+}
+.grid thead th {
+  position: sticky; top: 0; z-index: 2;
+  height: 30px; background: var(--bar); color: var(--ink-2);
+  font-size: 12px; font-weight: 600;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.grid .num { text-align: right; }
+.grid td.iso { font-weight: 600; }
+.grid tbody tr:hover > td { background: var(--row-hover); }
+
+/* Заголовок группы-цепочки */
+.grid tr.chain > td,
+.grid tbody tr.chain:hover > td {
+  height: 28px; background: var(--chain); color: var(--ink-2);
+  font-size: 12px; font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.grid tr.chain small { font-weight: 400; color: var(--ink-3); margin-left: 6px; }
+
+/* Суммы — двойная линия сверху, как итог в инженерной таблице */
+.grid tr.total > td,
+.grid tbody tr.total:hover > td {
+  background: var(--total); font-weight: 600;
+  border-top: 1px solid var(--rule-strong);
+}
+/* «Всего» по всем цепочкам — сильнее обычной суммы */
+.grid tr.total.grand > td,
+.grid tbody tr.total.grand:hover > td { background: var(--chain); border-top: 2px solid var(--ink-3); }
+.grid tr.stable > td.iso { color: var(--ink-2); }
+/* Примесь выше предела и целевой изотоп */
+.grid tr.over > td { background: var(--err-soft); }
+.grid tr.over > td.share { color: var(--err); font-weight: 600; }
+.grid tr.target > td.iso { color: var(--accent-ink); }
+.grid td.share.is-target { color: var(--accent-ink); font-weight: 600; }
+.grid tr.purity-row > td { background: var(--accent-soft); font-weight: 600; }
+.grid td.pm { color: var(--ink-2); }
+.grid .stable-note { color: var(--ink-3); font-size: 12px; }
+
+/* T½: щёлкается для правки; правка пользователя — янтарём */
+#inputTable td.t12 { color: var(--ink-2); }
+.grid td.t12[role="button"] { cursor: pointer; }
+.grid td.t12[role="button"]:hover { color: var(--accent-ink); text-decoration: underline dotted; text-underline-offset: 3px; }
+.grid td.t12[role="button"]:focus-visible { outline-offset: -2px; }
+.grid td.t12 .src {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px;
+  background: var(--bar-2); color: var(--ink-3);
+  font-size: 10.5px; font-weight: 600; line-height: 16px; vertical-align: 1px;
+}
+.grid td.t12.overridden { color: var(--amber); font-weight: 600; }
+.grid td.t12.overridden .src { background: var(--amber-soft); color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber-line); }
+.grid td.t12 input { width: 110px; height: 24px; text-align: right; }
+
+/* Поле активности в строке */
+.grid td.num input {
+  width: 100%; min-width: 96px; max-width: 150px; height: 24px; padding: 0 6px;
+  border-radius: 3px; text-align: right;
+}
+.grid input.invalid, .grid input[aria-invalid="true"], #hold.invalid, #hold[aria-invalid="true"] {
+  border-color: var(--err); background: var(--err-soft); color: var(--err);
+}
+
+/* ---------- Заблокированный ввод (после «Расчёт») ---------- */
+.lock-badge {
+  display: none; margin-left: auto; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-line);
+  font-size: 12px; font-weight: 600;
+}
+.lock-badge svg { width: 12px; height: 12px; }
+#inputPanel.locked .lock-badge,
+#inputPanel:has(#hold:disabled) .lock-badge { display: inline-flex; }
+#inputPanel.locked .input-wrap,
+#inputPanel:has(#hold:disabled) .input-wrap {
+  background-image: repeating-linear-gradient(-45deg, var(--hatch) 0 1px, transparent 1px 7px);
+}
+/* значения остаются читаемыми, но выглядят как «напечатанные» */
+#inputPanel .grid td.num input:disabled {
+  background: transparent; border-color: transparent; color: var(--ink); opacity: 1;
+}
+#inputPanel.locked #inputTable td.t12,
+#inputPanel:has(#hold:disabled) #inputTable td.t12 { cursor: default; text-decoration: none; color: var(--ink-2); }
+#inputPanel.locked #inputTable td.t12.overridden,
+#inputPanel:has(#hold:disabled) #inputTable td.t12.overridden { color: var(--amber); }
+#inputPanel.locked .chip,
+#inputPanel:has(#hold:disabled) .chip { padding-right: 10px; }
+#inputPanel.locked .chip-x,
+#inputPanel:has(#hold:disabled) .chip-x { display: none; }
+
+/* ---------- Панель результата: вкладки ---------- */
+.tabs { gap: 2px; padding: 0 6px; align-items: stretch; }
+.tab {
+  height: auto; padding: 0 14px; margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  background: transparent; color: var(--ink-2); font-weight: 600;
+}
+.tab:hover { color: var(--ink); background: transparent; }
+.tab.active, .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab:focus-visible { outline-offset: -3px; }
+
+.tab-panel { display: flex; flex-direction: column; min-height: 0; }
+.toolbar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 10px var(--pad); border-bottom: 1px solid var(--rule);
+}
+.toolbar h2 { margin-right: auto; font-size: 15px; font-weight: 600; }
+.toolbar-note { color: var(--ink-3); font-size: 12px; }
+/* Чистота и погрешность: строка под заголовком результата */
+.purity-bar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 8px var(--pad); border-bottom: 1px solid var(--rule); background: var(--bar); font-size: 12.5px;
+}
+.purity-bar label { color: var(--ink-2); font-weight: 600; }
+.purity-bar .pb-group { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; margin-right: 4px; }
+.purity-bar select { height: 28px; min-width: 0; max-width: 150px; }
+.purity-bar .inp-unit { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); margin-right: 4px; }
+#limitInp { height: 28px; width: 64px; text-align: right; }
+.purity-bar label.check { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+.purity-out { flex-basis: 100%; margin: 0; padding: 5px 9px; border-radius: 4px; font-size: 13px; font-weight: 600;
+  background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line); font-variant-numeric: tabular-nums; }
+.purity-out.bad { background: var(--err-soft); color: var(--err); border-color: var(--err-line); }
+.unc-note { flex: none; margin: 0; padding: 6px var(--pad); font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--rule); }
+/* Подбор выдержки */
+.find-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: center; margin: 12px 0; }
+.find-grid > label { font-weight: 600; }
+.find-grid input[type="text"] { width: 120px; text-align: right; }
+.find-grid select { max-width: 220px; }
+.check-line { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; }
+.check-line input { margin-top: 3px; }
+.find-conds { display: grid; gap: 8px; margin: 4px 0 12px; }
+.find-conds label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.find-conds .cond { display: inline-flex; align-items: baseline; gap: 6px; flex: 0 1 auto; min-width: 0; }
+.find-conds .cond input { flex: none; margin: 0; position: relative; top: 2px; }
+.find-conds .cond-val { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.find-conds input[type="text"] { width: 110px; height: var(--ctl-h); text-align: right; }
+.find-out { margin: 0; padding: 8px 10px; border-radius: 4px; background: var(--accent-soft); color: var(--ink); border: 1px solid var(--accent-line); }
+.find-out:empty { display: none; }
+.find-out.bad { background: var(--err-soft); border-color: var(--err-line); }
+.iaea-link { word-break: break-all; font-family: var(--font-mono); font-size: 12px; user-select: all; -webkit-user-select: all; }
+.change-list { max-height: 240px; overflow: auto; margin: 8px 0 0; }
+.toolbar-actions { display: flex; gap: 6px; margin-left: auto; }
+.toolbar button { height: 28px; padding: 0 10px; font-size: 13px; }
+
+/* График */
+.legend {
+  flex: none; display: flex; flex-wrap: wrap; gap: 4px 14px;
+  padding: 8px var(--pad); border-bottom: 1px solid var(--rule); font-size: 12.5px;
+}
+.legend:empty { display: none; }
+.legend label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; min-height: 22px; }
+.legend input { margin: 0; width: 14px; height: 14px; }
+.legend-btn {
+  height: 22px; padding: 0 9px; border-radius: 11px;
+  font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--pane);
+}
+.legend-btn + label { margin-left: 6px; }
+.legend .swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: currentColor; flex: none; }
+.legend label:has(input:not(:checked)) { color: var(--ink-3); }
+.legend label:has(input:not(:checked)) .swatch { opacity: .35; }
+.chart-box { position: relative; flex: 1; min-height: 280px; margin: 10px var(--pad) var(--pad); }
+#chart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#resultPanel:has(#resultTable tbody:empty) .chart-box::after {
+  content: "График появится после расчёта";
+  position: absolute; inset: 0; display: grid; place-items: center;
+  border: 1px dashed var(--rule-strong); border-radius: 6px; color: var(--ink-3); font-size: 13px;
+}
+
+/* Формулы */
+.fmt-tabs {
+  display: inline-flex; overflow: hidden;
+  border: 1px solid var(--rule-strong); border-radius: 5px; background: var(--pane);
+}
+.fmt {
+  height: 28px; padding: 0 12px; border: 0; border-radius: 0;
+  border-right: 1px solid var(--rule);
+  background: transparent; color: var(--ink-2); font-size: 12.5px; font-weight: 600;
+}
+.fmt:last-child { border-right: 0; }
+.fmt:hover { background: var(--bar-2); color: var(--ink); }
+.fmt.active, .fmt[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); }
+.fmt:focus-visible { outline-offset: -2px; }
+.toolbar .fmt { height: 26px; }
+
+.code {
+  flex: 1; min-height: 0; margin: 0; overflow: auto;
+  padding: 14px 16px;
+  background: var(--code-bg); color: var(--code-ink);
+  font: 12.5px/1.6 var(--font-mono);
+  white-space: pre; tab-size: 4;
+  user-select: text; -webkit-user-select: text;
+}
+.code:empty::before {
+  content: "Добавьте изотоп-родоначальник: здесь появятся постоянные распада, система уравнений Бейтмана и её решение.";
+  font-family: var(--font-ui); font-size: 13px; color: var(--ink-3); white-space: normal;
+}
+.code:focus-visible { outline-offset: -2px; }
+
+/* ---------- Диалог ---------- */
+#dlg {
+  width: min(760px, calc(100vw - 24px)); max-width: none; padding: 0;
+  border: 1px solid var(--rule-strong); border-radius: 8px;
+  background: var(--pane); color: var(--ink); box-shadow: var(--shadow-dlg);
+}
+#dlg::backdrop { background: var(--backdrop); }
+#dlg form { display: flex; flex-direction: column; max-height: min(86dvh, 900px); }
+.dlg-head {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 10px 10px 10px 18px; background: var(--bar); border-bottom: 1px solid var(--rule);
+}
+.dlg-head h2 { flex: 1; font-size: 15px; font-weight: 600; }
+.dlg-x { width: 30px; height: 30px; padding: 0; border: 0; background: transparent; }
+.dlg-x:hover { background: var(--bar-2); }
+.dlg-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 18px; line-height: 1.55; }
+.dlg-body:focus { outline: none; }
+.dlg-body > :first-child { margin-top: 0; }
+.dlg-body > :last-child { margin-bottom: 0; }
+.dlg-body h3 { margin: 18px 0 6px; font-size: 14px; }
+.dlg-body p, .dlg-body ul, .dlg-body ol { margin: 0 0 10px; max-width: 76ch; }
+.dlg-body li { margin: 3px 0; }
+.dlg-body code, .dlg-body kbd {
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 0 4px; border-radius: 3px; background: var(--code-bg); border: 1px solid var(--rule);
+}
+.dlg-body a { color: var(--accent-ink); }
+.dlg-body .table-wrap { max-height: 56dvh; border: 1px solid var(--rule); border-radius: 6px; margin: 8px 0 12px; }
+.dlg-body .grid th, .dlg-body .grid td { padding: 0 10px; }
+.dlg-body .note { color: var(--ink-3); font-size: 12.5px; }
+.dlg-body table:not(.grid) { border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.dlg-body table:not(.grid) th, .dlg-body table:not(.grid) td {
+  padding: 5px 12px 5px 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top;
+}
+.dlg-body table:not(.grid) th { color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.dlg-body table:not(.grid) tr:last-child > td { border-bottom: 0; }
+.dlg-foot {
+  flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;
+  padding: 10px 18px; background: var(--bar); border-top: 1px solid var(--rule);
+}
+.dlg-foot button { min-width: 92px; }
+#dlg.wide { width: min(1080px, calc(100vw - 24px)); }
+/* Правка T½: строка «T½ [значение] [единица]» */
+.field-row { display: flex; align-items: center; gap: 8px; margin: 14px 0 10px; }
+.field-row label { font-weight: 600; min-width: 26px; }
+.field-row input { width: 150px; text-align: right; }
+.field-row select { width: 84px; }
+.dlg-body .hint { font-size: 12.5px; }
+
+/* =====================================================================
+   Компьютер (≥ 900 px): панели на всю высоту окна, прокрутка внутри
+   ===================================================================== */
+@media (min-width: 900px) {
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  .layout {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: clamp(390px, 36vw, 520px) minmax(0, 1fr);
+  }
+  .pane { min-height: 0; overflow: hidden; }
+  #inputPanel { border-right: 1px solid var(--rule-strong); }
+  .pane-body { flex: 1; }
+  .input-wrap { flex: 1; min-height: 0; border-top: 1px solid var(--rule); }
+  .tab-panel { flex: 1; }
+  .result-wrap { flex: 1; min-height: 0; }
+}
+
+/* =====================================================================
+   Планшет и телефон (< 900 px): панели одна под другой, страница листается
+   ===================================================================== */
+@media (max-width: 899.98px) {
+  .layout { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 calc(16px + env(safe-area-inset-bottom)); }
+  .pane { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .pane-head, .roots, .table-caption, .calc-bar, .toolbar, .legend {
+    padding-left: max(var(--pad), env(safe-area-inset-left));
+    padding-right: max(var(--pad), env(safe-area-inset-right));
+  }
+  .input-wrap { border-top: 1px solid var(--rule); }
+  /* «Расчёт» всегда под рукой, пока видна панель ввода */
+  .calc-bar {
+    position: sticky; bottom: 0; z-index: 5;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -6px 16px rgba(0, 0, 0, .06);
+  }
+  .tab-panel { min-height: 320px; }
+  .chart-box { flex: none; height: 340px; min-height: 0; }
+  .code { flex: none; max-height: 70dvh; min-height: 240px; font-size: 12px; }
+  /* первая колонка закреплена при горизонтальной прокрутке таблицы */
+  .grid td.iso, .grid thead th:first-child { position: sticky; left: 0; z-index: 1; background: var(--pane); }
+  .grid thead th:first-child { z-index: 3; background: var(--bar); }
+  .grid tbody tr:hover > td.iso { background: var(--row-hover); }
+}
+
+/* Телефон */
+@media (max-width: 600px) {
+  :root { --pad: 12px; --ctl-h: 36px; }
+  body { font-size: 15px; }
+  /* 16 px в полях — иначе iOS увеличивает страницу при вводе */
+  :where(input:not([type]), input[type="text"], input[type="number"], select) { font-size: 16px; }
+  .menubar, .menu { position: static; }
+  .menu-btn { height: 30px; padding: 0 9px; font-size: 15px; }
+  .menu-list, .menu-list-wide {
+    left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); top: 100%;
+    min-width: 0; max-width: none;
+  }
+  .menu-list button { height: 42px; font-size: 15px; }
+  .preset-list button { height: auto; min-height: 42px; padding: 8px 10px; }
+  .grid { font-size: 14px; }
+  .grid th, .grid td { height: 38px; padding: 0 8px; }
+  .grid tr.chain > td { height: 32px; }
+  .grid td.num input { height: 32px; min-width: 104px; max-width: 132px; font-size: 16px; }
+  .grid td.t12 .src { margin-left: 4px; }
+  .grid thead th { white-space: normal; line-height: 1.2; }
+  .tab { flex: 1; padding: 0 8px; font-size: 14px; }
+  .tabs { padding: 0; }
+  .toolbar button { height: 34px; }
+  .fmt, .toolbar .fmt { height: 32px; padding: 0 10px; font-size: 13px; }
+  .toolbar-actions { margin-left: 0; }
+  .toolbar-actions button span { display: none; }
+  .toolbar-actions button { width: 38px; padding: 0; }
+  .legend label { min-height: 30px; }
+  #hold { min-width: 72px; }
+  .unit-select { height: 32px; font-size: 16px; }
+  /* после расчёта панель внизу экрана не растёт: сроки видны в заголовке результата */
+  body.locked .hold-more { display: none; }
+  .hold-more .dates-btn span { display: none; }
+  .hold-more .dates-btn { width: 40px; padding: 0; }
+  .purity-bar select { max-width: 120px; }
+  .find-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .date-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .date-grid input { font-size: 16px; height: 38px; }
+  #holdUnit { width: 74px; }
+  .actions button { height: 40px; }
+  #calcBtn { min-width: 112px; font-size: 15px; }
+  #dlg { width: calc(100vw - 16px); }
+  #dlg form { max-height: calc(100dvh - 24px); }
+  .dlg-body { padding: 14px; }
+  .dlg-foot { padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+  .dlg-foot button { flex: 1 1 auto; height: 40px; }
+}
+/* Узкий телефон: имя файла — второй строкой, кнопки расчёта — во всю ширину */
+@media (max-width: 480px) {
+  .topbar { flex-wrap: wrap; row-gap: 0; padding-bottom: 2px; }
+  .doc-title { order: 3; flex-basis: 100%; margin-left: 0; padding: 0 4px 4px 30px; font-size: 12px; }
+}
+@media (max-width: 400px) {
+  .actions { flex-basis: 100%; margin-left: 0; }
+  .actions button { flex: 1; }
+  .grid { font-size: 13.5px; }
+  .grid th, .grid td { padding: 0 6px; }
+  .grid th:first-child, .grid td:first-child { padding-left: max(10px, env(safe-area-inset-left)); }
+  .grid th:last-child, .grid td:last-child { padding-right: max(10px, env(safe-area-inset-right)); }
+}
+
+/* ---------- Печать: шапка и кнопки не нужны, результат и формулы целиком ---------- */
+/* Протокол для печати: на экране скрыт, при печати заменяет страницу */
+#printArea { display: none; }
+@media print {
+  body.has-print > :not(#printArea) { display: none !important; }
+  body.has-print #printArea { display: block; color: #000; font: 10.5pt/1.35 var(--font-ui); }
+  #printArea h1 { font-size: 16pt; margin: 0 0 4pt; }
+  #printArea h2 { font-size: 12pt; margin: 14pt 0 5pt; break-after: avoid; }
+  #printArea .meta { color: #555; font-size: 9pt; margin: 0 0 10pt; }
+  #printArea table { border-collapse: collapse; width: 100%; margin: 0 0 6pt; font-size: 9pt; }
+  #printArea th, #printArea td { border: 0.6pt solid #888; padding: 2pt 4pt; text-align: left; vertical-align: top; }
+  #printArea th { background: #e8ecf4; }
+  #printArea td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #printArea tr.b td { font-weight: 700; }
+  #printArea tr.over td { background: #fbe3e1; }
+  #printArea pre { font: 8pt/1.3 var(--font-mono); white-space: pre-wrap; margin: 0; }
+  #printArea .sign { margin-top: 18pt; display: grid; gap: 10pt; }
+}
+@media print {
+  :root { color-scheme: light; }
+  body { background: #fff; height: auto; overflow: visible; display: block; }
+  .topbar, .tabs, .toolbar button, .toolbar-actions, .fmt-tabs, .lock-badge, .calc-bar .actions,
+  .roots .root-add, .roots .hint, .chip-x, .empty, .legend { display: none !important; }
+  .layout { display: block; }
+  .pane { border: 0; overflow: visible; }
+  .table-wrap, .code { overflow: visible; max-height: none; }
+  .tab-panel[data-panel="formulas"][hidden] { display: block !important; }
+  .code { white-space: pre-wrap; background: none; }
+  .chart-box { height: 300px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+}

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Калькулятор полураспада</title>
+<meta name="description" content="Офлайн-калькулятор радиоактивного распада: цепочки распада, уравнения Бейтмана, активность после выдержки, экспорт в Excel">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1f2329" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Полураспад">
+<meta name="application-name" content="Полураспад">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ Шапка: меню программы ============ -->
+<header class="topbar">
+  <img class="brand" src="icon.svg" alt="" width="18" height="18">
+  <nav class="menubar" id="menubar" aria-label="Главное меню">
+    <div class="menu">
+      <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Файл</button>
+      <div class="menu-list" role="menu">
+        <button type="button" role="menuitem" data-cmd="new"><span>Новый</span><kbd>Ctrl+N</kbd></button>
+        <button type="button" role="menuitem" data-cmd="open"><span>Открыть…</span><kbd>Ctrl+O</kbd></button>
+        <hr>
+        <button type="button" role="menuitem" data-cmd="save"><span>Сохранить</span><kbd>Ctrl+S</kbd></button>
+        <button type="button" role="menuitem" data-cmd="saveAs"><span>Сохранить как…</span><kbd>Ctrl+Shift+S</kbd></button>
+        <hr>
+        <button type="button" role="menuitem" data-cmd="export" data-needs-result disabled><span>Экспорт в Excel (.xlsx)</span><kbd>Ctrl+E</kbd></button>
+        <button type="button" role="menuitem" data-cmd="protocol" data-needs-result disabled><span>Протокол в Word (.docx)</span></button>
+        <button type="button" role="menuitem" data-cmd="print" id="printItem" data-needs-result disabled><span>Печать протокола / PDF</span><kbd>Ctrl+P</kbd></button>
+      </div>
+    </div>
+    <div class="menu">
+      <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Данные</button>
+      <div class="menu-list" role="menu">
+        <button type="button" role="menuitem" data-cmd="data"><span>Ядерные данные…</span></button>
+        <button type="button" role="menuitem" data-cmd="resetOverrides"><span>Сбросить правки T½</span></button>
+        <button type="button" role="menuitem" data-cmd="updateData"><span>Обновить данные IAEA…</span></button>
+        <hr>
+        <button type="button" role="menuitem" data-cmd="findHold"><span>Подбор выдержки…</span></button>
+        <button type="button" role="menuitem" data-cmd="uncertainty"><span>Погрешность результата…</span></button>
+      </div>
+    </div>
+    <div class="menu">
+      <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Примеры</button>
+      <div class="menu-list menu-list-wide" role="menu">
+        <div id="presetMenu" class="preset-list"></div>
+      </div>
+    </div>
+    <div class="menu">
+      <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Справка</button>
+      <div class="menu-list" role="menu">
+        <button type="button" role="menuitem" data-cmd="guide"><span>Как пользоваться</span><kbd>F1</kbd></button>
+        <button type="button" role="menuitem" data-cmd="about"><span>О программе</span></button>
+      </div>
+    </div>
+  </nav>
+  <div class="doc-title" title="Текущий файл">
+    <svg class="doc-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+    <span id="docName">Без имени</span><span id="dirty" title="Есть несохранённые изменения" hidden>•</span>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ============ Слева: исходные данные ============ -->
+  <section class="pane" id="inputPanel" aria-labelledby="inputTitle">
+    <div class="pane-head">
+      <h2 id="inputTitle">Исходные данные</h2>
+      <span class="lock-badge">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" rx="1.5" fill="currentColor"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        Ввод заблокирован
+      </span>
+    </div>
+
+    <div class="pane-body">
+      <div class="roots">
+        <label class="field-label" for="rootInput">Родоначальники цепочек</label>
+        <div class="root-add">
+          <input id="rootInput" type="text" list="nuclideList" placeholder="Например, Th-229"
+                 autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"
+                 aria-describedby="rootHint">
+          <button id="addRootBtn" type="button">Добавить</button>
+        </div>
+        <datalist id="nuclideList"></datalist>
+        <p class="hint" id="rootHint">Дочерние изотопы, ветвления и стабильные концы цепочки добавятся сами.</p>
+        <div id="rootChips" class="chips" aria-live="polite"></div>
+        <p id="rootError" class="msg" role="alert" hidden></p>
+      </div>
+
+      <div class="table-caption">
+        <span>Начальные активности примесей</span>
+        <select id="actUnit" class="unit-select" aria-label="Единица активности" title="Единица активности: в ней вводятся A₀ и выводится результат">
+          <option value="Bq" selected>Бк</option>
+          <option value="kBq">кБк</option>
+          <option value="MBq">МБк</option>
+          <option value="GBq">ГБк</option>
+          <option value="uCi">мкКи</option>
+          <option value="mCi">мКи</option>
+          <option value="Ci">Ки</option>
+        </select>
+      </div>
+
+      <div id="emptyState" class="empty">
+        <svg class="empty-ico" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M8 6v34h34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M10 9c3.5 12 8.5 19.5 14.5 23.2S35 37 41 37.6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M17.6 24H8M17.6 24v16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 2.4"/>
+        </svg>
+        <p class="empty-title">Добавьте изотоп-родоначальник</p>
+        <p class="empty-text">Введите название (Th-229, U-238, Cs-137) и нажмите «Добавить»: таблица изотопов цепочки построится автоматически.
+          Готовые задачи есть в меню «Примеры».</p>
+      </div>
+
+      <div class="table-wrap input-wrap">
+        <table class="grid" id="inputTable">
+          <thead>
+            <tr><th scope="col">Изотоп</th><th scope="col" class="t12" title="Период полураспада. Щёлкните значение в строке, чтобы изменить">T½</th><th scope="col" class="num" id="a0Head">A₀, Бк</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="pane-foot calc-bar">
+      <div class="hold">
+        <label for="hold">Выдержка</label>
+        <input id="hold" type="text" inputmode="decimal" value="7" autocomplete="off" enterkeyhint="go">
+        <select id="holdUnit" aria-label="Единица времени выдержки">
+          <option value="s">с</option>
+          <option value="min">мин</option>
+          <option value="h">ч</option>
+          <option value="d" selected>сут</option>
+          <option value="y">лет</option>
+        </select>
+      </div>
+      <div class="hold-more">
+        <label for="holdExtra">Ещё сроки</label>
+        <input id="holdExtra" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="1; 14; 30" title="Дополнительные сроки выдержки в тех же единицах, через точку с запятой. Результат покажет активность на каждый срок.">
+        <button id="holdDatesBtn" class="dates-btn" type="button" title="Выдержка по датам: от калибровки до использования">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M5.2 1.6v2.8M10.8 1.6v2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M5 9h1.6M7.4 9H9M10 9h1.4M5 11.4h1.6M7.4 11.4H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <span>По датам</span>
+        </button>
+        <button id="findHoldBtn" class="dates-btn" type="button" title="Подобрать выдержку: спад до уровня, накопление, максимум, чистота">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.4 10.4L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.8 8.2l1.5-2 1.4 1.3 1.6-2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Подобрать</span>
+        </button>
+      </div>
+      <p id="holdDates" class="hint hold-dates" hidden></p>
+      <div class="actions">
+        <button id="calcBtn" class="primary" type="button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg>
+          Расчёт
+        </button>
+        <button id="editBtn" type="button" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.8 2.2l3 3L5.6 13.4 2 14l.6-3.6z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          Изменить данные
+        </button>
+      </div>
+      <p id="error" class="msg" role="alert" hidden></p>
+    </div>
+  </section>
+
+  <!-- ============ Справа: результат / график / формулы ============ -->
+  <section class="pane" id="resultPanel" aria-label="Результаты расчёта">
+    <div class="pane-head tabs" role="tablist" aria-label="Вид результата">
+      <button class="tab active" type="button" role="tab" data-tab="result" id="tab-result" aria-controls="tp-result" aria-selected="true">Результат</button>
+      <button class="tab" type="button" role="tab" data-tab="chart" id="tab-chart" aria-controls="tp-chart" aria-selected="false">График</button>
+      <button class="tab" type="button" role="tab" data-tab="formulas" id="tab-formulas" aria-controls="tp-formulas" aria-selected="false">Формулы</button>
+    </div>
+
+    <div class="tab-panel" data-panel="result" id="tp-result" role="tabpanel" aria-labelledby="tab-result">
+      <div class="toolbar">
+        <h2 id="resultTitle">Результат</h2>
+        <button id="exportBtn" type="button" data-needs-result disabled>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2" width="13" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4.6 5.4l3.6 5.2M8.2 5.4l-3.6 5.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10.6 5.5h1.8M10.6 8h1.8M10.6 10.5h1.8" stroke="currentColor" stroke-width="1.2"/></svg>
+          Экспорт в Excel
+        </button>
+      </div>
+      <div class="purity-bar" id="purityBar" hidden>
+        <span class="pb-group"><label for="targetSel">Целевой изотоп</label>
+        <select id="targetSel" title="Изотоп-продукт: для него считается радионуклидная чистота, остальные — примеси"><option value="">— не выбран —</option></select></span>
+        <span class="pb-group"><label for="limitInp">Предел примеси</label>
+        <span class="inp-unit"><input id="limitInp" type="text" inputmode="decimal" autocomplete="off" value="0,1" title="Допустимая доля каждой примеси в общей активности, %"> %</span></span>
+        <label class="check" title="Если отмечено, дочерние продукты, накопившиеся из самого целевого изотопа, тоже считаются примесями"><input type="checkbox" id="progenyChk"> дочерние цели — тоже примеси</label>
+        <p id="purityOut" class="purity-out" role="status" hidden></p>
+      </div>
+      <p id="uncNote" class="unc-note" hidden></p>
+      <div id="resultEmpty" class="empty">
+        <svg class="empty-ico" viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="6" y="9" width="36" height="30" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M6 17h36M18 17v22M30 17v22M6 25h36M6 32h36" stroke="currentColor" stroke-width="1.4"/>
+        </svg>
+        <p class="empty-title">Результата пока нет</p>
+        <p class="empty-text">Задайте начальные активности и выдержку, затем нажмите «Расчёт».
+          Здесь появятся активности A(t) и число атомов N(t) после выдержки. Формулы модели уже видны на вкладке «Формулы».</p>
+      </div>
+      <div class="table-wrap result-wrap">
+        <table class="grid" id="resultTable">
+          <thead>
+            <tr><th scope="col">Изотоп</th><th scope="col" class="num">A₀, Бк</th><th scope="col" class="num">A(t), Бк</th><th scope="col" class="num">N(t), атомов</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-panel" data-panel="chart" id="tp-chart" role="tabpanel" aria-labelledby="tab-chart" hidden>
+      <div class="toolbar">
+        <h2>Активность во время выдержки</h2>
+        <span class="toolbar-note">A(t), Бк, логарифмическая шкала</span>
+      </div>
+      <div id="chartLegend" class="legend"></div>
+      <div class="chart-box"><canvas id="chart" role="img" aria-label="График активности изотопов во время выдержки"></canvas></div>
+    </div>
+
+    <div class="tab-panel" data-panel="formulas" id="tp-formulas" role="tabpanel" aria-labelledby="tab-formulas" hidden>
+      <div class="toolbar">
+        <div class="fmt-tabs" role="group" aria-label="Формат формул">
+          <button class="fmt active" type="button" data-fmt="text" aria-pressed="true">Текст</button>
+          <button class="fmt" type="button" data-fmt="maple" aria-pressed="false">Maple</button>
+          <button class="fmt" type="button" data-fmt="latex" aria-pressed="false">LaTeX</button>
+          <button class="fmt" type="button" data-fmt="python" aria-pressed="false">Python</button>
+        </div>
+        <div class="toolbar-actions">
+          <button id="copyFormulaBtn" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M11 5V3a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 2 3v7.5A1.5 1.5 0 0 0 3.5 12H5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+            <span>Копировать</span>
+          </button>
+          <button id="downloadFormulaBtn" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Скачать</span>
+          </button>
+        </div>
+      </div>
+      <pre id="formulaOut" class="code" tabindex="0" aria-label="Формулы модели"></pre>
+    </div>
+  </section>
+</main>
+
+<!-- ============ Протокол для печати (виден только при печати) ============ -->
+<div id="printArea" aria-hidden="true"></div>
+
+<!-- ============ Диалог: справка, ядерные данные, сообщения ============ -->
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <form method="dialog">
+    <div class="dlg-head">
+      <h2 id="dlgTitle"></h2>
+      <button class="dlg-x" type="submit" value="cancel" aria-label="Закрыть">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="dlgBody" class="dlg-body" tabindex="-1" autofocus></div>
+    <div class="dlg-foot"><button class="primary" type="submit" value="ok">OK</button></div>
+  </form>
+</dialog>
+<input type="file" id="fileInput" accept=".hlc,.json,application/json" hidden>
+
+<script src="nucdb.js"></script>
+<script src="core.js"></script>
+<script src="formulas.js"></script>
+<script src="xlsx.js"></script>
+<script src="tools.js"></script>
+<script src="presets.js"></script>
+<script src="help.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

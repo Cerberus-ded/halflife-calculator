@@ -1,0 +1,10 @@
+# Сборки (zip, apk, exe) — выкладываются отдельно, не в git
+dist/
+node_modules/
+# Ключ подписи Android — не публиковать
+*.keystore
+*.jks
+# Копии web/ для страницы claude.ai собираются скриптом artifact/build_artifact.py
+artifact/*
+!artifact/build_artifact.py
+!artifact/artifact-host.js

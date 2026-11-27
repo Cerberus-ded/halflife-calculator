@@ -1,0 +1,20 @@
+{
+  "name": "halflife-calc",
+  "productName": "Калькулятор полураспада",
+  "version": "1.0.0",
+  "description": "Калькулятор радиоактивного распада: цепочки, уравнения Бейтмана, активность после выдержки",
+  "main": "main.js",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Химическая программа",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "node build.mjs --platform win32 --arch x64",
+    "build:linux": "node build.mjs --platform linux --arch x64",
+    "test:web": "node test/e2e-web.js ../web"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.11.6"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Калькулятор полураспада",
+  "short_name": "Полураспад",
+  "description": "Офлайн-расчёт активности изотопов и цепочек распада после выдержки: уравнения Бейтмана, формулы для Maple и LaTeX, экспорт в Excel.",
+  "lang": "ru",
+  "dir": "ltr",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e3e6ea",
+  "theme_color": "#f3f4f6",
+  "categories": ["education", "utilities", "productivity"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
