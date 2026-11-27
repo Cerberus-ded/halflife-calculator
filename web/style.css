@@ -799,6 +799,7 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
   #printArea tr.b td { font-weight: 700; }
   #printArea tr.over td { background: #fbe3e1; }
   #printArea pre { font: 8pt/1.3 var(--font-mono); white-space: pre-wrap; margin: 0; }
+  #printArea ul.summary { margin: 0 0 6pt; padding-left: 14pt; } #printArea ul.summary li { margin: 2pt 0; }
   #printArea .sign { margin-top: 18pt; display: grid; gap: 10pt; }
 }
 /* Печать страницы целиком (Ctrl+P без протокола): только данные и ответ */

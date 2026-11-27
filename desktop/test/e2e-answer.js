@@ -63,6 +63,16 @@ const doc = (o) => JSON.stringify(Object.assign({ format: 'halflife-calc', versi
     check(/^Всего, все изотопы вместе: 748,9 млн Бк \(вначале было 1,002 млрд Бк\)\.$/.test(li[li.length - 1]), 'итог: ' + li[li.length - 1]);
     check(await head() === 'Через 30 сут: всего 748,9 млн Бк (вначале 1,002 млрд Бк) (основной срок; остальные — в таблице)', 'заголовок с несколькими сроками: ' + await head());
     check(li.some((t) => /вначале было 1 млрд Бк/.test(t)) && li.some((t) => /Ac-225: больше всего активности у Pb-209/.test(t)), 'цепочка Ac-225 уменьшилась — «вначале было»');
+    // «Вывод» в протоколе Word и в печати
+    await p.evaluate(() => { window.__doc = null; window.HLSaveHook = async (blob, name) => { window.__doc = { name, s: new TextDecoder().decode(new Uint8Array(await blob.arrayBuffer())) }; return true; }; });
+    await p.evaluate(() => App.run('protocol'));
+    await p.waitForFunction(() => window.__doc, null, { timeout: 8000 }).catch(() => null);
+    const dx = await p.evaluate(() => window.__doc && { name: window.__doc.name, out: window.__doc.s.includes('>Вывод<'), tot: window.__doc.s.includes('• Всего, все изотопы вместе: 748,9') });
+    check(dx && dx.out && dx.tot, 'протокол Word: раздел «Вывод» с итогом' + (dx ? '' : ' (файл не сохранён)'));
+    await p.evaluate(() => { window.print = () => {}; App.run('print'); });
+    const pr = await p.$eval('#printArea', (e) => ({ h: [...e.querySelectorAll('h2')].map((x) => x.textContent), li: e.querySelectorAll('ul.summary li').length }));
+    check(pr.h.join() === 'Исходные данные,Результат,Вывод,Модель и формулы' && pr.li === li.length, 'печать: «Вывод» между результатом и формулами (' + pr.h.join(', ') + ')');
+    await p.evaluate(() => { delete window.HLSaveHook; });
 
     // 4. ровно целые периоды и единицы МБк
     await run(doc({ roots: ['Ra-224'], activities: { 'Ra-224': 10 }, actUnit: 'MBq', hold: 3.6316 * 2 }));
