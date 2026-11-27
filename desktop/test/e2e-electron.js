@@ -42,7 +42,16 @@ const waitFile = async (f) => { for (let i = 0; i < 50 && !fs.existsSync(f); i++
   check(await win.evaluate(() => document.body.classList.contains('electron')), 'body.electron');
   check(await win.locator('#menubar').isHidden(), 'HTML-меню скрыто, вместо него нативное');
   const tops = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.map((i) => i.label.replace('&', '')));
-  check(tops.join(',') === 'Файл,Правка,Расчёт,Данные,Примеры,Вид,Справка', 'нативное меню: ' + tops.join(', '));
+  check(tops.join(',') === 'Файл,Правка,Расчёт,Данные,Инструменты,Примеры,Вид,Справка', 'нативное меню: ' + tops.join(', '));
+  // «Данные» и «Инструменты» — те же пункты и в том же порядке, что в веб-меню
+  const nativeItems = await app.evaluate(({ Menu }) => Object.fromEntries(['Данные', 'Инструменты'].map((t) =>
+    [t, Menu.getApplicationMenu().items.find((i) => i.label.replace('&', '') === t).submenu.items.map((i) => i.label).filter(Boolean)])));
+  const webItems = await win.evaluate(() => Object.fromEntries([...document.querySelectorAll('#menubar > .menu')].map((m) =>
+    [m.querySelector('.menu-btn').textContent.trim(), [...m.querySelectorAll('[data-cmd] > span:first-child')].map((x) => x.textContent.trim())])));
+  check(['Данные', 'Инструменты'].every((t) => JSON.stringify(nativeItems[t]) === JSON.stringify(webItems[t])),
+    'меню «Данные» и «Инструменты» как в веб-версии: ' + JSON.stringify(nativeItems));
+  const viewItems = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label.replace('&', '') === 'Вид').submenu.items.map((i) => i.label));
+  check(!viewItems.includes('Инструменты разработчика'), 'в собранной программе нет «Инструментов разработчика»');
   const presets = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label.includes('меры')).submenu.items.length);
   check(presets >= 5, `примеры в нативном меню: ${presets}`);
   check(!(await menuEnabled(app, 'Файл', 'Экспорт в Excel (.xlsx)…')), 'экспорт неактивен до расчёта');

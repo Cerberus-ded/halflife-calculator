@@ -64,20 +64,21 @@ function buildMenu() {
       { type: 'separator' },
       item('Таблица', 'tab', 'CmdOrCtrl+1', { click: () => send('tab', 'result') }),
       item('График', 'tab', 'CmdOrCtrl+2', { click: () => send('tab', 'chart') }),
-      item('Формулы', 'tab', 'CmdOrCtrl+3', { click: () => send('tab', 'formulas') }),
+      item('Схема', 'tab', 'CmdOrCtrl+3', { click: () => send('tab', 'scheme') }),
+      item('Формулы', 'tab', 'CmdOrCtrl+4', { click: () => send('tab', 'formulas') }),
     ] },
     { label: '&Данные', submenu: [
       item('Ядерные данные…', 'data'),
       item('Таблица Менделеева…', 'ptable'),
       item('Сбросить правки T½', 'resetOverrides'),
       item('Обновить данные IAEA…', 'updateData'),
-      { type: 'separator' },
+    ] },
+    { label: '&Инструменты', submenu: [
       item('Подбор выдержки…', 'findHold'),
-      item('Генератор: многократные отборы…', 'generator'),
       item('Пересчёт от измерения…', 'backCalc'),
       item('Погрешность результата…', 'uncertainty'),
       item('Масса и активность…', 'mass'),
-      item('Схема распада…', 'scheme'),
+      item('Генератор: многократные отборы…', 'generator'),
     ] },
     { label: 'При&меры', submenu: presets.length
       ? presets.map((p) => ({ label: p.title, click: () => send('preset', p.id) }))
@@ -88,8 +89,8 @@ function buildMenu() {
       { label: 'Обычный размер', role: 'resetZoom' },
       { type: 'separator' },
       { label: 'Во весь экран', role: 'togglefullscreen' },
-      { type: 'separator' },
-      { label: 'Инструменты разработчика', role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' },
+      // инструменты разработчика — только при запуске из исходников (npm start), в собранной программе их нет
+      ...(app.isPackaged ? [] : [{ type: 'separator' }, { label: 'Инструменты разработчика', role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' }]),
     ] },
     { label: '&Справка', submenu: [
       item('Как пользоваться', 'guide', 'F1'),
