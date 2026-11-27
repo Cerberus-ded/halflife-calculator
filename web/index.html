@@ -311,9 +311,19 @@
 
     <div class="tab-panel" data-panel="chart" id="tp-chart" role="tabpanel" aria-labelledby="tab-chart" hidden>
       <div class="toolbar">
-        <p class="panel-note">Как менялась активность каждого изотопа со временем. Шкала по вертикали логарифмическая:
-          так видны и большие, и очень маленькие значения. Снимите галочку, чтобы скрыть линию.</p>
+        <p class="panel-note">Как менялась активность каждого изотопа со временем. Логарифмическая шкала показывает и большие,
+          и очень маленькие значения; обычная — привычные пропорции. Снимите галочку, чтобы скрыть линию.</p>
+        <div class="chart-scale" role="group" aria-label="Шкала по вертикали">
+          <button class="fmt active" type="button" data-scale="log" aria-pressed="true">Логарифмическая</button>
+          <button class="fmt" type="button" data-scale="lin" aria-pressed="false">Обычная</button>
+        </div>
         <span class="toolbar-note">A(t), Бк, логарифмическая шкала</span>
+        <div class="toolbar-actions">
+          <button id="chartPngBtn" type="button" title="Сохранить график картинкой — для отчёта или презентации">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Скачать PNG</span>
+          </button>
+        </div>
       </div>
       <div id="chartLegend" class="legend"></div>
       <div class="chart-box"><canvas id="chart" role="img" aria-label="График активности изотопов со временем"></canvas></div>
