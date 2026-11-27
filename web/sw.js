@@ -8,7 +8,7 @@ const CACHE_PREFIX = 'halflife-calc-';
 const CACHE = CACHE_PREFIX + 'v6';
 const FILES = [
   'index.html', 'style.css', 'manifest.webmanifest',
-  'nucdb.js', 'core.js', 'formulas.js', 'formula-import.js', 'xlsx.js', 'tools.js', 'masses.js', 'amount.js', 'scheme.js', 'presets.js', 'help.js', 'elements.js', 'picker.js', 'app.js',
+  'nucdb.js', 'core.js', 'formulas.js', 'formula-import.js', 'xlsx.js', 'tools.js', 'masses.js', 'amount.js', 'scheme.js', 'presets.js', 'help.js', 'elements.js', 'picker.js', 'ptable.js', 'app.js',
   'icon.svg', 'icon-192.png', 'icon-512.png',
 ];
 

@@ -63,6 +63,7 @@
 | `help.js` | `HLHelp` | тексты «Как пользоваться», «О программе», «О данных» |
 | `elements.js` | `HLElements` | названия элементов по-русски, таблица Менделеева |
 | `picker.js` | `HLPicker` | выбор изотопа в полях: `resolve` («торий-229», «229 тория», «радий» при одном Ra в расчёте), `suggest` и `field` — свой список подсказок под полем (`.iso-sug`); разметка поля `span.iso-field > input + button.iso-pt` |
+| `ptable.js` | `HLPtable` | окно «Таблица Менделеева»: несколько изотопов для шага 1 (повторное нажатие убирает) и один изотоп для поля `.iso-field` (окно `#ptDlg` поверх окна инструмента, повторное нажатие снимает выбор) |
 | `app.js` | `App` | интерфейс: шаги, меню, вкладки, файлы, черновик и недавние расчёты, генератор, пересчёт от измерения |
 | `sw.js` | — | офлайн-кэш: список `FILES` и версия `CACHE` (поднимать при каждом изменении файлов) |
 
@@ -98,6 +99,9 @@ mpmath, numpy, scipy, sympy. Если менялся `desktop/`, дополни�
   `dist/halflife-calc-web.zip`.
 - Android: `android/build.sh <рабочая папка>` → `dist/halflife-calc.apk` (нужны aapt, dx, zipalign, apksigner).
 - GitHub Pages: `.github/workflows/pages.yml` публикует `web/` после тестов, когда Pages включены в настройках репозитория.
+- Версии: номер в `desktop/package.json`, `web/app.js`, `web/help.js`, `android/AndroidManifest.xml` и `CHANGELOG.md`
+  (проверяет `tests/check_version.js`). Новый номер в `main` → `.github/workflows/release.yml` создаёт тег `vX.Y` и релиз
+  со сборкой для Windows и веб-архивом. Правила — раздел «Версии» в ROADMAP.md.
 
 ## Общая папка проекта
 

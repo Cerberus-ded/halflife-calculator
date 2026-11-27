@@ -242,7 +242,7 @@ label.check { display: inline-flex; align-items: center; gap: 8px; cursor: point
 .preset-list:empty::before { content: "Примеры не загружены"; display: block; padding: 8px 12px; color: var(--ink-3); }
 
 .doc-title {
-  margin-left: auto; min-width: 0;
+  margin-left: auto; min-width: 0; overflow: hidden; /* на узком телефоне меню занимает всю шапку — точка «не сохранено» не должна раздвигать страницу */
   display: flex; align-items: center; gap: 6px; padding: 0 4px;
   color: var(--ink-3); font-size: 14px;
 }
@@ -592,13 +592,13 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .code:focus-visible { outline-offset: -2px; }
 
 /* ---------- Диалог ---------- */
-#dlg {
+#dlg, #ptDlg {
   width: min(760px, calc(100vw - 24px)); max-width: none; padding: 0;
   border: 1px solid var(--rule-strong); border-radius: 14px;
   background: var(--pane); color: var(--ink); box-shadow: var(--shadow-dlg);
 }
-#dlg::backdrop { background: var(--backdrop); }
-#dlg form { display: flex; flex-direction: column; max-height: min(88dvh, 920px); }
+#dlg::backdrop, #ptDlg::backdrop { background: var(--backdrop); }
+#dlg form, #ptDlg form { display: flex; flex-direction: column; max-height: min(88dvh, 920px); }
 .dlg-head {
   flex: none; display: flex; align-items: center; gap: 8px;
   padding: 12px 12px 12px 22px; border-bottom: 1px solid var(--rule);
@@ -640,7 +640,7 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
   border-radius: 0 0 14px 14px;
 }
 .dlg-foot button { min-width: 100px; }
-#dlg.wide { width: min(1080px, calc(100vw - 24px)); }
+#dlg.wide, #ptDlg { width: min(1080px, calc(100vw - 24px)); }
 /* Правка T½: строка «T½ [значение] [единица]» */
 .field-row { display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; }
 .field-row label { font-weight: 600; min-width: 26px; }
@@ -773,8 +773,8 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
   .find-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .date-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 
-  #dlg { width: calc(100vw - 16px); }
-  #dlg form { max-height: calc(100dvh - 24px); }
+  #dlg, #ptDlg { width: calc(100vw - 16px); }
+  #dlg form, #ptDlg form { max-height: calc(100dvh - 24px); }
   .dlg-head { padding-left: 16px; }
   .dlg-body { padding: 14px 16px; }
   .dlg-foot { padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
@@ -997,6 +997,24 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .pt-iso-btn.added { background: var(--ok-soft); border-color: var(--ok-line); }
 .pt-iso-btn.added span { color: var(--ok); }
 .pt-iso-btn.chain span { color: var(--ink-3); }
+/* выбран в окне «один изотоп для поля»: повторное нажатие снимает выбор */
+.pt-iso-btn.picked { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.pt-iso-btn.picked span { color: inherit; opacity: .85; }
+.pt-iso-btn.added:not(:disabled):hover { background: var(--err-soft); border-color: var(--err-line); }
+.pt-iso-btn.added:not(:disabled):hover span { color: var(--err); }
+.pt-iso-btn.picked:not(:disabled):hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.pt-iso h3:only-child { margin: 0; }
+
+/* Поле изотопа с кнопкой таблицы: span.iso-field > input + button.iso-pt (кнопку показывает ptable.js) */
+.iso-field { position: relative; display: inline-flex; align-items: stretch; gap: 6px; min-width: 0; max-width: 100%; }
+.iso-field > input, .iso-field > select { flex: 1 1 auto; min-width: 0; }
+.iso-pt { flex: none; width: var(--ctl-h); height: var(--ctl-h); padding: 0; color: var(--accent-ink); }
+.iso-pt svg { width: 18px; height: 18px; }
+.iso-pt:not(:disabled):hover { background: var(--accent-soft); border-color: var(--accent-line); }
+/* в окнах инструментов поле изотопа — текст, выравнивание влево (числа рядом — вправо) */
+.find-grid .iso-field input[type="text"], .bc-grid .iso-field input[type="text"], .mass-grid .iso-field input[type="text"] { width: 170px; text-align: left; }
+.purity-bar .iso-field input { width: 150px; height: 38px; text-align: left; }
+.purity-bar .iso-field .iso-pt { width: 38px; height: 38px; }
 .pt-status { min-height: 1.4em; margin: 10px 0 0; font-size: 14.5px; color: var(--ok); }
 .pt-status.error { color: var(--err); }
 .pt-status:empty { display: none; }

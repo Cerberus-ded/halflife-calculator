@@ -261,7 +261,8 @@
       active = active < 0 ? (d > 0 ? 0 : n - 1) : (active + d + n) % n;
       render();
     }
-    const onInput = () => { if (!quiet) open(false); };
+    // список открывает только набор с клавиатуры: значение из таблицы Менделеева или из программы (события без isTrusted) его не открывает
+    const onInput = (e) => { if (!quiet && e.isTrusted && document.activeElement === input) open(false); };
     const onKey = (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); move(e.key === 'ArrowDown' ? 1 : -1); return; }
       if (!isOpen()) return;

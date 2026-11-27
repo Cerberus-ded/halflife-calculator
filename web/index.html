@@ -417,6 +417,19 @@
     <div class="dlg-foot"><button class="primary" type="submit" value="ok">OK</button></div>
   </form>
 </dialog>
+<!-- ============ Таблица Менделеева поверх окна инструмента: выбор одного изотопа (ptable.js) ============ -->
+<dialog id="ptDlg" class="pt-dlg" aria-labelledby="ptDlgTitle">
+  <form method="dialog">
+    <div class="dlg-head">
+      <h2 id="ptDlgTitle">Выберите изотоп</h2>
+      <button class="dlg-x" type="submit" value="cancel" aria-label="Закрыть">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div id="ptDlgBody" class="dlg-body" tabindex="-1"></div>
+    <div class="dlg-foot"><button type="submit" value="cancel">Отмена</button><button class="primary" type="submit" value="ok">Готово</button></div>
+  </form>
+</dialog>
 <input type="file" id="fileInput" accept=".hlc,.json,application/json,.mpl,.tex,.py,.txt,.csv,.tsv,.xlsx" hidden>
 
 <script src="nucdb.js"></script>
@@ -432,6 +445,7 @@
 <script src="help.js"></script>
 <script src="elements.js"></script>
 <script src="picker.js"></script>
+<script src="ptable.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
