@@ -55,7 +55,7 @@ function buildMenu() {
       item('Рассчитать', 'calc', 'F9', { enabled: !pageState.locked }),
       item('Изменить данные', 'edit', 'F2', { enabled: !!pageState.locked }),
       { type: 'separator' },
-      item('Результат', 'tab', 'CmdOrCtrl+1', { click: () => send('tab', 'result') }),
+      item('Таблица', 'tab', 'CmdOrCtrl+1', { click: () => send('tab', 'result') }),
       item('График', 'tab', 'CmdOrCtrl+2', { click: () => send('tab', 'chart') }),
       item('Формулы', 'tab', 'CmdOrCtrl+3', { click: () => send('tab', 'formulas') }),
     ] },

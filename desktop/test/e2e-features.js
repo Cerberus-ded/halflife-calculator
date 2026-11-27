@@ -14,6 +14,7 @@ const check = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) fail
     const errs = [];
     p.on('pageerror', (e) => errs.push(e.message));
     await p.goto(PAGE);
+    await p.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // блоки «Дополнительно» раскрыты
     await p.evaluate(() => { window.__saved = []; window.HLSaveHook = async (blob, name) => { window.__saved.push({ name, blob }); return true; }; });
     // единица МБк, Th-229 = 1 МБк, Ra-224 = 0,02 МБк
     await p.selectOption('#actUnit', 'MBq');

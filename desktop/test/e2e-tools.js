@@ -30,6 +30,7 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
   await p.goto(PAGE);
   await p.evaluate(() => { try { localStorage.clear(); } catch (e) { /* нет хранилища */ } });
   await p.reload();
+  await p.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // блоки «Дополнительно» раскрыты
   await p.evaluate(() => {
     window.__saved = [];
     window.HLSaveHook = async (blob, name) => { const buf = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (const x of buf) s += String.fromCharCode(x); window.__saved.push({ name, b64: btoa(s) }); return true; };
@@ -124,6 +125,7 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
   const T = await p.evaluate(() => window.NUCDB['Ac-225'][0]);
   check(Math.abs(T / (9.95 * D) - 1) < 1e-12, 'T½(Ac-225) = 9,95 сут после обновления');
   await p.reload(); await p.waitForTimeout(200);
+  await p.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // блоки «Дополнительно» раскрыты
   const T2 = await p.evaluate(() => window.NUCDB['Ac-225'][0]);
   check(Math.abs(T2 / (9.95 * D) - 1) < 1e-12, 'обновление сохраняется после перезапуска');
   await p.evaluate(() => { App.run('uncertainty'); }); await p.waitForTimeout(150);
@@ -139,6 +141,7 @@ const CSV = 'z,n,symbol,radius,unc_r,abundance,unc_a,energy_shift,energy,unc_e,r
   ph.setDefaultTimeout(10000);
   ph.on('pageerror', (e) => errs.push('phone: ' + e.message));
   await ph.goto(PAGE);
+  await ph.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; })); // блоки «Дополнительно» раскрыты
   await ph.evaluate((t) => App.loadText(t, 'ac.hlc'), DOC);
   await ph.click('#calcBtn'); await ph.waitForTimeout(200);
   await ph.selectOption('#targetSel', 'Ac-225');
