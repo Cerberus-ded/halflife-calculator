@@ -904,3 +904,23 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
   #printArea .print-scheme { break-inside: avoid; margin: 0 0 6pt; }
   #printArea .print-scheme svg { display: block; margin: 0 auto; max-width: 100%; height: auto; max-height: 23cm; }
 }
+
+/* ---------- Пересчёт от измерения (A₀ по измеренной позже активности) ---------- */
+.table-caption { flex-wrap: wrap; }
+.caption-btn {
+  display: inline-flex; align-items: center; gap: 7px; margin-left: auto;
+  height: 36px; padding: 0 12px; font-size: 14.5px; font-weight: 500; color: var(--ink-2);
+}
+.caption-btn svg { width: 16px; height: 16px; flex: none; }
+.caption-btn:hover { color: var(--ink); }
+#inputPanel.locked .caption-btn,
+#inputPanel:has(#hold:disabled) .caption-btn { display: none; }
+.bc-grid .inp-unit { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.bc-grid .inp-unit input { width: 150px; min-width: 0; }
+.bc-grid select { max-width: 100%; }
+@media (max-width: 600px) {
+  .caption-btn { margin-left: 0; }
+}
+@media print {
+  .caption-btn { display: none !important; }
+}

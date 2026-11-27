@@ -66,6 +66,7 @@ function buildMenu() {
       { type: 'separator' },
       item('Подбор выдержки…', 'findHold'),
       item('Генератор: многократные отборы…', 'generator'),
+      item('Пересчёт от измерения…', 'backCalc'),
       item('Погрешность результата…', 'uncertainty'),
       item('Масса и активность…', 'mass'),
       item('Схема распада…', 'scheme'),
