@@ -74,7 +74,7 @@ async function menu(page, cmd) {
   await page.locator('#hold').press('Enter');
   await page.waitForSelector('#resultTable tbody tr');
   check(await page.locator('#inputTable input[data-name="Th-229"]').isDisabled(), 'ввод заблокирован после расчёта');
-  check(await page.locator('#editBtn').isVisible() && await page.locator('#calcBtn').isHidden(), 'кнопка «Изменить данные» вместо «Расчёт»');
+  check(await page.locator('#editBtn').isVisible() && await page.locator('#calcBtn').isHidden(), 'кнопка «Изменить данные» вместо «Рассчитать»');
   check(await page.locator('#inputPanel').evaluate((e) => e.classList.contains('locked')), '#inputPanel.locked');
   check(await page.locator('[data-cmd="export"]').isEnabled(), 'экспорт активен после расчёта');
   const title = await page.locator('#resultTitle').innerText();
