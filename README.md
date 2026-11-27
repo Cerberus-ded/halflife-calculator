@@ -17,6 +17,10 @@
 | `halflife-calc-win-x64.zip` | Программа для Windows 10/11 (64 бит) |
 | `halflife-calc.apk` | Приложение для Android |
 
+Номер версии — в «Справка → О программе». Что изменилось в каждой версии — [CHANGELOG.md](CHANGELOG.md).
+Все версии со сборками для Windows и браузера — на странице [Releases](https://github.com/Cerberus-ded/halflife-calculator/releases):
+прошлые версии не удаляются, к любой можно вернуться.
+
 ## Как открыть
 
 ### В браузере (любой компьютер)
@@ -168,6 +172,8 @@ Ctrl+E — экспорт в Excel, Ctrl+P — печать протокола, 
 | `android/` | Сборка APK (`android/build.sh`) |
 | `tests/` | Тесты |
 | `.github/workflows/pages.yml` | Публикация `web/` на GitHub Pages (если Pages включены) |
+| `.github/workflows/release.yml` | Выпуск версии: тег `vX.Y` и релиз со сборками, когда в `main` меняется номер версии в `desktop/package.json` |
+| `CHANGELOG.md` | Версии и что в них нового |
 
 ### Публикация на GitHub Pages
 
@@ -197,6 +203,7 @@ node tests/run_all.js
 | `tests/check_mass.js` | Массы всех нуклидов базы (AME 2020), удельная активность H-3, C-14, Co-60, Ra-226, Pu-239, U-238 против справочных значений, пересчёты масса ↔ атомы ↔ активность |
 | `tests/check_tools.js` | Чистота, подбор выдержки (против аналитических ответов), погрешность, разбор выгрузки IAEA, корректность .docx |
 | `desktop/test/e2e-generator.js` | Окно генератора: ввод, ошибки, таблица и график отборов, Excel, «Элюат в расчёт», сохранение настроек, телефон |
+| `tests/check_version.js` | Номер версии совпадает в `desktop/package.json`, `web/app.js`, `web/help.js`, `AndroidManifest.xml` и `CHANGELOG.md`; `versionCode` растёт с каждой версией |
 | `tests/check_scheme.js` | Схема распада на всех примерах и длинных рядах (U-238, U-235, Th-232, Np-237, Cf-252): рамки не перекрываются, стрелки идут вниз, подписи в пределах картинки, доли ветвлений |
 | `desktop/test/e2e-scheme.js` | Схема распада в браузере: кнопка и меню, A₀ и A(t), цель, SVG и PNG, тёмная тема, телефон |
 | `tests/check_backcalc.js` | Пересчёт от измерения: аналитика (распад, Mo-99 → Tc-99m), проверка прямым расчётом, соотношение A₀, ошибки |

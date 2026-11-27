@@ -4,7 +4,7 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const scripts = ['validate_db.js', 'check_presets.js', 'compare_reference.js', 'check_formulas.js', 'check_tools.js', 'check_generator.js', 'check_mass.js', 'check_scheme.js', 'check_backcalc.js', 'check_elements.js', 'check_import.js', 'check_maple.js', 'check_desktop_main.js'];
+const scripts = ['validate_db.js', 'check_presets.js', 'compare_reference.js', 'check_formulas.js', 'check_tools.js', 'check_generator.js', 'check_mass.js', 'check_scheme.js', 'check_backcalc.js', 'check_elements.js', 'check_import.js', 'check_maple.js', 'check_desktop_main.js', 'check_version.js'];
 let failed = 0;
 // Сценарии интерфейса ветки «Код» (Playwright) — если файл и сам Playwright доступны.
 const e2e = path.join(__dirname, '..', 'desktop', 'test', 'e2e-web.js');

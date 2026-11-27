@@ -1,0 +1,116 @@
+# Выпуск версии: тег vX.Y и релиз на GitHub со сборкой для Windows и веб-архивом.
+#
+# Номер версии берётся из desktop/package.json ("1.1.0" → v1.1). Его поднимают при каждом обновлении
+# вместе с web/app.js, web/help.js и android/AndroidManifest.xml (сверяет tests/check_version.js),
+# а в CHANGELOG.md добавляют раздел «## 1.1 — …». Слияние в main с новым номером само создаёт тег и релиз.
+# Уже выпущенные версии не трогаются: старые сборки остаются в своих релизах.
+#
+# Вручную: Actions → «Выпуск версии» → Run workflow, в поле «ref» — коммит, например a455279 для версии 1.0.
+#
+# APK в релиз не входит: ключ подписи не хранится в открытом репозитории (с другим ключом обновление
+# на телефоне не встанет). APK собирают отдельно (android/build.sh) и хранят рядом с остальными сборками.
+name: Выпуск версии
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/package.json']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Коммит, ветка или тег, который выпустить'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Тег, сборки и релиз
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - id: v
+        name: Номер версии
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          full=$(node -p "require('./desktop/package.json').version")
+          short=$(node -p "process.argv[1].replace(/\.0$/, '')" "$full")
+          tag="v$short"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Версия $short уже выпущена ($tag) — пропускаю. Для нового выпуска поднимите номер версии."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Выпускаю версию $short ($tag) из $(git rev-parse --short HEAD)"
+          fi
+
+      - if: steps.v.outputs.exists == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Проверка базы, примеров и импорта формул
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          node tests/validate_db.js
+          node tests/check_presets.js
+          if [ -f tests/check_import.js ]; then node tests/check_import.js; fi
+          if [ -f tests/check_version.js ]; then node tests/check_version.js; fi
+
+      - name: Сборка для Windows и веб-архив
+        if: steps.v.outputs.exists == 'false'
+        working-directory: desktop
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: |
+          npm install --no-audit --no-fund
+          node build.mjs --out "$RUNNER_TEMP/dist" --work "$RUNNER_TEMP/work"
+          v='${{ steps.v.outputs.short }}'
+          mkdir -p "$RUNNER_TEMP/release"
+          mv "$RUNNER_TEMP/dist/halflife-calc-win-x64.zip" "$RUNNER_TEMP/release/halflife-calc-$v-win-x64.zip"
+          mv "$RUNNER_TEMP/dist/halflife-calc-web.zip" "$RUNNER_TEMP/release/halflife-calc-$v-web.zip"
+          ls -la "$RUNNER_TEMP/release"
+
+      - name: Что нового (из CHANGELOG.md в main)
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.v.outputs.short }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/contents/CHANGELOG.md?ref=${GITHUB_SHA}" -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/CHANGELOG.md" || : > "$RUNNER_TEMP/CHANGELOG.md"
+          node -e '
+            const fs = require("fs");
+            const [file, v, out] = process.argv.slice(1);
+            const text = fs.readFileSync(file, "utf8");
+            const esc = v.replace(/\./g, "\\.");
+            const m = text.match(new RegExp("^## " + esc + "\\b[^\\n]*\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))", "m"));
+            const body = (m ? m[1].trim() : "Версия " + v + ".") + "\n\n" +
+              "**Файлы:** `halflife-calc-" + v + "-win-x64.zip` — Windows 10/11 (64 бит), распаковать и запустить halflife-calc.exe; " +
+              "`halflife-calc-" + v + "-web.zip` — версия для браузера, открыть index.html.\n";
+            fs.writeFileSync(out, body);
+          ' "$RUNNER_TEMP/CHANGELOG.md" "$V" "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Тег и релиз
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.v.outputs.tag }}' "$RUNNER_TEMP"/release/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target '${{ steps.v.outputs.sha }}' \
+            --title 'Версия ${{ steps.v.outputs.short }}' \
+            --notes-file "$RUNNER_TEMP/notes.md"
