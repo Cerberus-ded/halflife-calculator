@@ -46,6 +46,8 @@ const waitFile = async (f) => { for (let i = 0; i < 50 && !fs.existsSync(f); i++
   const presets = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label.includes('меры')).submenu.items.length);
   check(presets >= 5, `примеры в нативном меню: ${presets}`);
   check(!(await menuEnabled(app, 'Файл', 'Экспорт в Excel (.xlsx)…')), 'экспорт неактивен до расчёта');
+  const fileItems = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items[0].submenu.items.map((i) => i.label).filter(Boolean));
+  check(fileItems.includes('Экспорт формул…') && await menuEnabled(app, 'Файл', 'Экспорт формул…'), 'Файл → Экспорт формул… — как в веб-версии');
 
   console.log('2. Расчёт');
   await win.fill('#inputTable input[data-name="Th-229"]', '1e6');
