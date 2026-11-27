@@ -19,11 +19,16 @@ let pendingFile = fileFromArgs(process.argv);
 app.setAppUserModelId('ru.halflife.calc');
 app.setName(PRODUCT);
 
+// Открываются расчёты .hlc и формулы (Maple, LaTeX, Python, текст, CSV, Excel) — формат узнаёт страница (formula-import.js)
+const FORMULA_EXT = ['mpl', 'tex', 'py', 'txt', 'csv', 'tsv', 'xlsx'];
+const OPEN_RE = new RegExp(`\\.(hlc|json|${FORMULA_EXT.join('|')})$`, 'i');
 function fileFromArgs(argv) {
-  const f = argv.slice(1).find((a) => /\.(hlc|json)$/i.test(a) && fs.existsSync(a));
+  const f = argv.slice(1).find((a) => OPEN_RE.test(a) && fs.existsSync(a));
   return f ? path.resolve(f) : null;
 }
 function readProject(p) {
+  // Excel — двоичный файл: страница получает байты, остальное — текстом
+  if (/\.xlsx$/i.test(p)) return { path: p, name: path.basename(p), bytes: new Uint8Array(fs.readFileSync(p)) };
   return { path: p, name: path.basename(p), text: fs.readFileSync(p, 'utf8') };
 }
 function send(cmd, arg) {
@@ -42,6 +47,7 @@ function buildMenu() {
       item('Сохранить как…', 'saveAs', 'CmdOrCtrl+Shift+S'),
       { type: 'separator' },
       item('Экспорт в Excel (.xlsx)…', 'export', 'CmdOrCtrl+E', { enabled: !!pageState.hasResult }),
+      item('Экспорт формул…', 'exportFormulas'),
       item('Протокол в Word (.docx)…', 'protocol', undefined, { enabled: !!pageState.hasResult }),
       item('Печать протокола / PDF…', 'print', 'CmdOrCtrl+P', { enabled: !!pageState.hasResult }),
       { type: 'separator' },
@@ -150,13 +156,14 @@ ipcMain.handle('fetch-text', async (e, url) => {
 
 ipcMain.handle('open-file', async () => {
   const r = await dialog.showOpenDialog(win, {
-    title: 'Открыть расчёт', defaultPath: lastDir || app.getPath('documents'),
-    filters: [FILTER_HLC, { name: 'JSON', extensions: ['json'] }, { name: 'Все файлы', extensions: ['*'] }],
+    title: 'Открыть расчёт или формулы', defaultPath: lastDir || app.getPath('documents'),
+    filters: [{ name: 'Расчёт и формулы', extensions: ['hlc', ...FORMULA_EXT] }, FILTER_HLC,
+      { name: 'Формулы (Maple, LaTeX, Python, текст, CSV, Excel)', extensions: FORMULA_EXT }, { name: 'JSON', extensions: ['json'] }, { name: 'Все файлы', extensions: ['*'] }],
     properties: ['openFile'],
   });
   if (r.canceled || !r.filePaths[0]) return null;
   lastDir = path.dirname(r.filePaths[0]);
-  app.addRecentDocument(r.filePaths[0]);
+  if (/\.hlc$/i.test(r.filePaths[0])) app.addRecentDocument(r.filePaths[0]);
   return readProject(r.filePaths[0]);
 });
 ipcMain.handle('save-file', async (e, opts) => {

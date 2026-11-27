@@ -33,13 +33,14 @@
       <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Файл</button>
       <div class="menu-list" role="menu">
         <button type="button" role="menuitem" data-cmd="new"><span>Новый</span><kbd>Ctrl+N</kbd></button>
-        <button type="button" role="menuitem" data-cmd="open"><span>Открыть…</span><kbd>Ctrl+O</kbd></button>
+        <button type="button" role="menuitem" data-cmd="open" title="Расчёт (.hlc) или формулы: Maple, LaTeX, Python, текст, CSV, Excel"><span>Открыть…</span><kbd>Ctrl+O</kbd></button>
         <button type="button" role="menuitem" data-cmd="recent"><span>Недавние расчёты…</span></button>
         <hr>
         <button type="button" role="menuitem" data-cmd="save"><span>Сохранить</span><kbd>Ctrl+S</kbd></button>
         <button type="button" role="menuitem" data-cmd="saveAs"><span>Сохранить как…</span><kbd>Ctrl+Shift+S</kbd></button>
         <hr>
         <button type="button" role="menuitem" data-cmd="export" data-needs-result disabled><span>Экспорт в Excel (.xlsx)</span><kbd>Ctrl+E</kbd></button>
+        <button type="button" role="menuitem" data-cmd="exportFormulas"><span>Экспорт формул…</span></button>
         <button type="button" role="menuitem" data-cmd="protocol" data-needs-result disabled><span>Протокол в Word (.docx)</span></button>
         <button type="button" role="menuitem" data-cmd="print" id="printItem" data-needs-result disabled><span>Печать протокола / PDF</span><kbd>Ctrl+P</kbd></button>
       </div>
@@ -386,11 +387,12 @@
     <div class="dlg-foot"><button class="primary" type="submit" value="ok">OK</button></div>
   </form>
 </dialog>
-<input type="file" id="fileInput" accept=".hlc,.json,application/json" hidden>
+<input type="file" id="fileInput" accept=".hlc,.json,application/json,.mpl,.tex,.py,.txt,.csv,.tsv,.xlsx" hidden>
 
 <script src="nucdb.js"></script>
 <script src="core.js"></script>
 <script src="formulas.js"></script>
+<script src="formula-import.js"></script>
 <script src="xlsx.js"></script>
 <script src="tools.js"></script>
 <script src="masses.js"></script>

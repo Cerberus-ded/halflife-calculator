@@ -1,0 +1,65 @@
+# Публикация веб-версии (папка web/) на GitHub Pages при каждом изменении main.
+# Включается один раз: Settings → Pages → Build and deployment → Source: «GitHub Actions».
+# Для закрытого репозитория Pages доступны только на платном плане GitHub; сайт Pages всегда открыт всем.
+# Пока Pages не включены, публикация пропускается без ошибки (в журнале — пояснение).
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', 'tests/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Pages включены?
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.pages.outputs.enabled }}
+    steps:
+      - id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if bt=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type 2>/dev/null); then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Pages включены (источник: $bt)"
+            [ "$bt" = "workflow" ] || echo "::warning::В Settings → Pages выберите Source: GitHub Actions — иначе сайт соберётся не из web/"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GitHub Pages не включены (Settings → Pages → Source: GitHub Actions) — публикация пропущена"
+          fi
+
+  deploy:
+    name: Тесты и публикация web/
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Проверка базы, примеров и импорта формул
+        run: |
+          node tests/validate_db.js
+          node tests/check_presets.js
+          node tests/check_import.js
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deployment
+        uses: actions/deploy-pages@v4
