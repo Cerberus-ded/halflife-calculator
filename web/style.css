@@ -924,3 +924,9 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 @media print {
   .caption-btn { display: none !important; }
 }
+
+/* ---------- График: шкала и картинка ---------- */
+.chart-scale { display: inline-flex; overflow: hidden; border: 1px solid var(--rule-strong); border-radius: 8px; background: var(--pane); }
+@media print {
+  .chart-scale { display: none !important; }
+}

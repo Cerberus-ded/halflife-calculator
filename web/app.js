@@ -112,6 +112,7 @@
     massLast: null,
     hidden: {}, // скрытые на графике серии
     tab: 'result', fmt: 'text', hover: null,
+    chartScale: 'log', // шкала графика по вертикали: 'log' или 'lin' (запоминается в браузере)
   };
 
   // ---------- набор нуклидов ----------
@@ -511,7 +512,7 @@
     if (title) title.textContent = r ? resultTitle(r) : 'Результат';
     const au = ACT_UNITS[r ? r.actUnit : actUnit()] || ACT_UNITS[DEFAULT_ACT];
     const f = r ? r.actF : 1, u = au.ru;
-    const note = $('#tp-chart .toolbar-note'); if (note) note.textContent = `A(t), ${u}, логарифмическая шкала`;
+    renderChartScale(u);
     if (r) { if (uncActive()) { if (!r.unc || r.unc.key !== uncKey()) computeUnc(r); } else r.unc = null; }
     const pl = r ? purityList(r) : null;
     renderPurityBar(r, pl);
@@ -679,11 +680,11 @@
     const r = state.result; if (!r) return [];
     return r.rows.map((x, i) => i).filter((i) => !r.rows[i].stable && r.series.A.some((row) => row[i] > 0));
   }
-  function seriesStyle(k) {
-    const pal = PALETTE[isDark() ? 'dark' : 'light'];
-    const css = getComputedStyle(document.documentElement);
+  /** Цвет и штрих серии k; theme — 'light' для файла (иначе по теме страницы). */
+  function seriesStyle(k, theme) {
+    const pal = PALETTE[theme || (isDark() ? 'dark' : 'light')];
     const slot = k % pal.length;
-    const color = css.getPropertyValue('--series-' + (slot + 1)).trim() || pal[slot];
+    const color = (theme ? '' : getComputedStyle(document.documentElement).getPropertyValue('--series-' + (slot + 1)).trim()) || pal[slot];
     return { color, dash: DASHES[Math.floor(k / pal.length) % DASHES.length] };
   }
   function swatchStyle(st) {
@@ -745,18 +746,88 @@
     g.clearRect(0, 0, W, H);
     const css = getComputedStyle(document.documentElement);
     const v = (...names) => { for (const n of names) { const x = css.getPropertyValue(n).trim(); if (x) return x; } return ''; };
-    const ink = v('--ink', '--text') || '#1c2127';
-    const muted = v('--chart-text', '--ink-2', '--muted') || '#4e5864';
-    const grid = v('--chart-grid', '--rule', '--line') || '#e7e9ed';
-    const axis = v('--chart-axis', '--rule-strong') || '#a3abb5';
-    const panel = v('--chart-bg', '--pane', '--panel') || '#ffffff';
-    const font = '12px ' + (v('--font-ui') || 'system-ui, "Segoe UI", sans-serif');
+    chart.geo = paintChart(g, W, H, {
+      ink: v('--ink', '--text') || '#1c2127',
+      muted: v('--chart-text', '--ink-2', '--muted') || '#4e5864',
+      grid: v('--chart-grid', '--rule', '--line') || '#e7e9ed',
+      axis: v('--chart-axis', '--rule-strong') || '#a3abb5',
+      panel: v('--chart-bg', '--pane', '--panel') || '#ffffff',
+      font: '12px ' + (v('--font-ui') || 'system-ui, "Segoe UI", sans-serif'),
+      hover: state.hover,
+    });
+  }
+  const CHART_SCALE_KEY = 'halflife.chartScale';
+  function renderChartScale(unitRu) {
+    const lin = state.chartScale === 'lin';
+    $$('.chart-scale .fmt').forEach((b) => { const a = b.dataset.scale === state.chartScale; b.classList.toggle('active', a); b.setAttribute('aria-pressed', String(a)); });
+    const r = state.result;
+    const u = unitRu || (ACT_UNITS[r ? r.actUnit : actUnit()] || ACT_UNITS[DEFAULT_ACT]).ru;
+    const note = $('#tp-chart .toolbar-note'); if (note) note.textContent = `A(t), ${u}, ${lin ? 'обычная' : 'логарифмическая'} шкала`;
+    const btn = $('#chartPngBtn'); if (btn) btn.disabled = !r;
+  }
+  function setChartScale(v) {
+    state.chartScale = v === 'lin' ? 'lin' : 'log';
+    storeSet(CHART_SCALE_KEY, state.chartScale === 'lin' ? 'lin' : null);
+    renderChartScale();
+    drawChart();
+  }
+  /** График для файла: светлый, с заголовком и подписями серий; 1100×640 при масштабе 2. Возвращает Promise<Blob>. */
+  function chartPngBlob() {
+    const r = state.result; if (!r) return Promise.resolve(null);
+    const W = 1100, H = 640, k = 2;
+    const cv = document.createElement('canvas'); cv.width = W * k; cv.height = H * k;
+    const g = cv.getContext('2d'); g.scale(k, k);
+    g.fillStyle = CHART_FILE.panel; g.fillRect(0, 0, W, H);
+    const fam = getComputedStyle(document.documentElement).getPropertyValue('--font-ui').trim() || 'system-ui, "Segoe UI", sans-serif';
+    const font = '13px ' + fam, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
+    g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillStyle = CHART_FILE.ink; g.font = '600 16px ' + fam;
+    g.fillText('Активность изотопов: ' + r.roots.join(', '), 20, 14);
+    g.fillStyle = CHART_FILE.muted; g.font = font;
+    g.fillText(`A(t), ${u}, ${state.chartScale === 'lin' ? 'обычная' : 'логарифмическая'} шкала · выдержка ${r.holdText}`, 20, 38);
+    // подписи серий: строки по ширине картинки
+    const all = chartSeries();
+    const items = all.filter((i) => !state.hidden[r.rows[i].name]).map((i) => ({ k: all.indexOf(i), name: r.rows[i].name }));
+    const rows = [[]]; let w = 0;
+    for (const it of items) {
+      it.w = 30 + g.measureText(it.name).width + 18;
+      if (w + it.w > W - 40 && rows[rows.length - 1].length) { rows.push([]); w = 0; }
+      rows[rows.length - 1].push(it); w += it.w;
+    }
+    const legH = items.length ? rows.length * 22 + 12 : 0;
+    g.save(); g.translate(10, 62);
+    paintChart(g, W - 20, H - 62 - legH, Object.assign({ font, hover: null }, CHART_FILE));
+    g.restore();
+    rows.forEach((row, n) => {
+      let x = 20; const y = H - legH + 6 + n * 22;
+      for (const it of row) {
+        const st = seriesStyle(it.k, 'light');
+        g.strokeStyle = st.color; g.lineWidth = 2.5; g.setLineDash(st.dash); g.beginPath(); g.moveTo(x, y + 8); g.lineTo(x + 22, y + 8); g.stroke();
+        g.setLineDash([]); g.fillStyle = CHART_FILE.ink; g.textBaseline = 'middle'; g.font = font; g.fillText(it.name, x + 30, y + 8);
+        x += it.w;
+      }
+    });
+    return new Promise((resolve, reject) => cv.toBlob((b) => (b ? resolve(b) : reject(new Error('не удалось получить PNG'))), 'image/png'));
+  }
+  async function downloadChartPng() {
+    if (!state.result) return;
+    try { const b = await chartPngBlob(); if (b) await saveBlob(b, baseName() + '-график.png', 'image/png'); } catch (e) { errorDlg('Ошибка сохранения', e); }
+  }
+  /** Цвета графика для файла PNG — всегда светлые, на белом фоне. */
+  const CHART_FILE = { ink: '#1c2127', muted: '#4e5864', grid: '#e7e9ed', axis: '#a3abb5', panel: '#ffffff', theme: 'light' };
+  /**
+   * Рисует график результата в области W×H контекста g. o: {ink, muted, grid, axis, panel, font, hover, theme}.
+   * Шкала по вертикали — state.chartScale ('log' или 'lin'). Возвращает геометрию осей (для курсора) или null.
+   */
+  function paintChart(g, W, H, o) {
+    const { ink, muted, grid, axis, panel, font } = o;
+    const sty = (k) => seriesStyle(k, o.theme);
+    const lin = state.chartScale === 'lin';
     g.font = font;
     g.fillStyle = muted;
     const r = state.result;
-    chart.geo = null;
-    const msg = (t) => { g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, W / 2, H / 2); };
-    if (!r) return; // подсказку «График появится после расчёта» показывает вёрстка
+    const msg = (t) => { g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, W / 2, H / 2); return null; };
+    if (!r) return null; // подсказку «График появится после расчёта» показывает вёрстка
     const all = chartSeries();
     const shown = all.filter((i) => !state.hidden[r.rows[i].name]);
     const span = r.chartSec || r.tSec, f = r.actF || 1, u = (ACT_UNITS[r.actUnit] || ACT_UNITS[DEFAULT_ACT]).ru;
@@ -769,19 +840,40 @@
     const hi = Math.ceil(Math.log10(vmax) + 1e-9);
     let lo = Math.floor(Math.log10(vmin));
     lo = Math.max(lo, hi - 12); if (hi - lo < 2) lo = hi - 2;
-    const L = 58, R = 14, T = 12, B = 40;
+    // обычная шкала: от 0 до «круглого» значения не меньше максимума
+    const ystep = lin ? niceStep(vmax / 5) : 0;
+    const top = lin ? Math.ceil(vmax / ystep - 1e-9) * ystep : 0;
+    // подписи обычной шкалы — в одном виде: 250 000 или 0,25·10⁶ (общая степень для больших и малых чисел)
+    const ex = lin && (top >= 1e5 || top < 1e-2) ? Math.floor(Math.log10(top)) : null;
+    const ylab = lin ? (v) => (v === 0 ? '0' : ex == null ? fmt(v, 3) : String(Number((v / Math.pow(10, ex)).toPrecision(3))).replace('.', ',') + '·' + pow10(ex)) : null;
+    let L = 58;
+    if (lin) {
+      g.font = font;
+      let wmax = 0; for (let k = 0; k * ystep <= top * 1.0001; k++) wmax = Math.max(wmax, g.measureText(ylab(k * ystep)).width);
+      L = Math.max(58, Math.ceil(wmax) + 34); // слева ещё подпись оси «A, Бк»
+    }
+    const R = 14, T = 12, B = 40;
     const pw = W - L - R, ph = H - T - B;
     const sc = UNITS[r.unit].sec, tmax = span / sc;
     const x = (tu) => L + pw * tu / tmax;
-    const y = (v) => { const lv = v > 0 ? Math.max(Math.log10(v), lo) : lo; return T + ph * (hi - lv) / (hi - lo); };
+    const y = lin ? (v) => T + ph * (1 - Math.max(v, 0) / top)
+      : (v) => { const lv = v > 0 ? Math.max(Math.log10(v), lo) : lo; return T + ph * (hi - lv) / (hi - lo); };
     // сетка и оси
     g.lineWidth = 1; g.strokeStyle = grid; g.fillStyle = muted;
-    const estep = Math.max(1, Math.ceil((hi - lo) / Math.max(2, Math.floor(ph / 28))));
     g.textAlign = 'right'; g.textBaseline = 'middle';
-    for (let e = hi; e >= lo; e -= estep) {
-      const yy = Math.round(y(Math.pow(10, e))) + 0.5;
-      g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke();
-      g.fillText(pow10(e), L - 6, yy);
+    if (lin) {
+      for (let k = 0; k * ystep <= top * 1.0001; k++) {
+        const yy = Math.round(y(k * ystep)) + 0.5;
+        g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke();
+        g.fillText(ylab(k * ystep), L - 6, yy);
+      }
+    } else {
+      const estep = Math.max(1, Math.ceil((hi - lo) / Math.max(2, Math.floor(ph / 28))));
+      for (let e = hi; e >= lo; e -= estep) {
+        const yy = Math.round(y(Math.pow(10, e))) + 0.5;
+        g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke();
+        g.fillText(pow10(e), L - 6, yy);
+      }
     }
     const step = niceStep(tmax / Math.max(2, Math.floor(pw / 90)));
     g.textAlign = 'center'; g.textBaseline = 'top';
@@ -803,21 +895,21 @@
     g.lineWidth = 2; g.lineJoin = 'round'; g.lineCap = 'round';
     g.save(); g.beginPath(); g.rect(L, T - 2, pw, ph + 4); g.clip();
     for (const i of shown) {
-      const st = seriesStyle(all.indexOf(i));
+      const st = sty(all.indexOf(i));
       g.strokeStyle = st.color; g.setLineDash(st.dash); g.beginPath();
       r.series.t.forEach((t, p) => { const xx = x(t / sc), yy = y(r.series.A[p][i] / f); if (p) g.lineTo(xx, yy); else g.moveTo(xx, yy); });
       g.stroke();
     }
     g.restore(); g.setLineDash([]);
-    chart.geo = { L, T, pw, ph, x, y, sc, tmax };
+    const geo = { L, T, pw, ph, x, y, sc, tmax };
     // курсор и подсказка
-    const p = state.hover;
+    const p = o.hover;
     if (p != null && p >= 0 && p < r.series.t.length) {
       const tu = r.series.t[p] / sc, xx = Math.round(x(tu)) + 0.5;
       g.strokeStyle = axis; g.lineWidth = 1; g.beginPath(); g.moveTo(xx, T); g.lineTo(xx, T + ph); g.stroke();
       const items = shown.map((i) => ({ i, v: r.series.A[p][i] / f })).filter((it) => it.v > 0).sort((a, b) => b.v - a.v);
       for (const it of items) {
-        const st = seriesStyle(all.indexOf(it.i));
+        const st = sty(all.indexOf(it.i));
         g.beginPath(); g.arc(xx, y(it.v), 4, 0, 2 * Math.PI); g.fillStyle = st.color; g.fill();
         g.lineWidth = 2; g.strokeStyle = panel; g.stroke();
       }
@@ -836,10 +928,11 @@
       g.fillText(head, bx + 10, by + 6);
       lines.forEach((l, n) => {
         const ly = by + 24 + n * 17;
-        if (l.k >= 0) { g.fillStyle = seriesStyle(l.k).color; g.fillRect(bx + 10, ly + 4, 8, 8); }
+        if (l.k >= 0) { g.fillStyle = sty(l.k).color; g.fillRect(bx + 10, ly + 4, 8, 8); }
         g.fillStyle = l.k >= 0 ? ink : muted; g.fillText(l.text, bx + (l.k >= 0 ? 22 : 10), ly);
       });
     }
+    return geo;
   }
   function roundRect(g, x, y, w, h, r) {
     g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
@@ -2319,6 +2412,8 @@
 
     $$('.tabs .tab').forEach((t) => t.addEventListener('click', () => selectTab(t.dataset.tab)));
     $$('.fmt-tabs .fmt').forEach((b) => b.addEventListener('click', () => { state.fmt = b.dataset.fmt; renderFormulas(); }));
+    $$('.chart-scale .fmt').forEach((b) => b.addEventListener('click', () => setChartScale(b.dataset.scale)));
+    const cpng = $('#chartPngBtn'); if (cpng) cpng.addEventListener('click', downloadChartPng);
     const cb = $('#copyFormulaBtn'); if (cb) cb.addEventListener('click', copyFormulas);
     const db = $('#downloadFormulaBtn'); if (db) db.addEventListener('click', downloadFormulas);
 
@@ -2368,6 +2463,7 @@
     if (window.HLNoPrint) { const pi = $('#printItem'); if (pi) pi.hidden = true; }
     loadIaeaUpdate();
     state.amount = amountModeGet();
+    if (storeGet(CHART_SCALE_KEY) === 'lin') state.chartScale = 'lin';
     fillNuclideList();
     fillPresetMenu();
     bindMenus();
