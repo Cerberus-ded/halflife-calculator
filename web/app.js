@@ -1145,9 +1145,17 @@
       n = document.createElement('div'); n.id = 'draftNote'; n.className = 'draft-note'; n.setAttribute('role', 'status');
       const intro = $('.intro'), main = $('main');
       if (intro) intro.after(n); else if (main) main.prepend(n); else return;
-      n.addEventListener('click', (e) => {
+      n.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-draft]'); if (!b) return;
-        if (b.dataset.draft === 'reset') resetDoc();
+        if (b.dataset.draft === 'reset') {
+          // восстановленный расчёт пропадёт без следа — переспрашиваем
+          if (state.dirty) {
+            const r = await dialog({ title: 'Начать заново', html: '<p>Удалить восстановленный расчёт и начать новый? Вернуть его будет нельзя.</p>',
+              buttons: [{ label: 'Начать заново', value: 'ok', primary: true }, { label: 'Отмена', value: 'cancel' }] });
+            if (r !== 'ok') return;
+          }
+          resetDoc();
+        }
         hideDraftNote();
       });
     }
