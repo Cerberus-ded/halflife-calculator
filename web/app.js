@@ -105,6 +105,7 @@
     unc: { uA: 0, uT: 0, useIaea: false }, // погрешности, % (1σ)
     iaea: null, // обновление данных IAEA {date, changes: {имя: T}, unc: {имя: отн.}}
     findLast: null,
+    gen: null, // генератор: {interval, unit, count, first?, eff: {элемент: %}}
     hidden: {}, // скрытые на графике серии
     tab: 'result', fmt: 'text', hover: null,
   };
@@ -930,6 +931,7 @@
       extra.purity = { target: state.target, limitPercent: lim != null ? Number((lim * 100).toPrecision(10)) : null, countProgeny: !!state.countProgeny };
     }
     if (state.unc.uA || state.unc.uT || state.unc.useIaea) extra.uncertainty = Object.assign({}, state.unc);
+    if (state.gen) extra.generator = JSON.parse(JSON.stringify(state.gen));
     return JSON.stringify(Object.assign({
       format: FILE_FORMAT, version: FILE_VERSION, app: APP_TITLE + ' ' + APP_VERSION, saved: new Date().toISOString(),
       roots: state.roots.slice(), activities, activityUnit: ACT_UNITS[actUnit()].ru, hold: h.ok ? h.value : $('#hold').value, holdUnit: h.unit,
@@ -971,12 +973,25 @@
     const un = d.uncertainty && typeof d.uncertainty === 'object' ? d.uncertainty : {};
     const pct = (v) => (typeof v === 'number' && v >= 0 && v <= 100 ? v : 0);
     state.unc = { uA: pct(un.uA), uT: pct(un.uT), useIaea: !!un.useIaea };
+    state.gen = validGen(d.generator);
     state.result = null;
     setLocked(false);
     renderInput();
     renderResult();
     showError('');
     setRootError(warn.length ? 'Не найдено в базе и пропущено: ' + warn.join(', ') + '.' : '');
+  }
+
+  /** Настройки генератора из файла (или null, если их нет или они испорчены). */
+  function validGen(g) {
+    if (!g || typeof g !== 'object') return null;
+    const num = (v, lo, hi) => typeof v === 'number' && isFinite(v) && v >= lo && v <= hi;
+    if (!num(g.interval, 0, 1e9) || !num(g.count, 1, 1000) || !UNITS[g.unit]) return null;
+    const eff = {};
+    for (const [el, v] of Object.entries(g.eff || {})) if (/^[A-Z][a-z]?$/.test(el) && num(v, 0, 100) && v > 0) eff[el] = v;
+    const out = { interval: g.interval, unit: g.unit, count: Math.floor(g.count), eff };
+    if (num(g.first, 0, 1e9)) out.first = g.first;
+    return out;
   }
 
   async function confirmDiscard() {
@@ -995,7 +1010,7 @@
     rebuildSet();
     setHold(DEFAULT_HOLD, DEFAULT_UNIT);
     setActUnit(DEFAULT_ACT); setExtra(''); state.dates = null; renderDates();
-    state.target = ''; state.countProgeny = false; setLimit(0.1); state.unc = { uA: 0, uT: 0, useIaea: false };
+    state.target = ''; state.countProgeny = false; setLimit(0.1); state.unc = { uA: 0, uT: 0, useIaea: false }; state.gen = null;
     state.result = null;
     state.name = UNTITLED; state.handle = null; state.path = null;
     setLocked(false);
@@ -1421,6 +1436,233 @@
     renderResult();
   }
 
+  // ---------- генератор с многократными отборами ----------
+  const GEN_UNITS = ['min', 'h', 'd', 'y'];
+  const GEN_COLS = 6; // изотопов элюата в таблице окна (остальные — в «прочие» и в Excel)
+  /** Элементы набора с радиоактивными изотопами и значения окна по умолчанию. */
+  function genDefaults() {
+    const radio = new Set(state.set.filter((x) => x.lambda > 0).map((x) => x.name));
+    const els = TL.elementsOf(state.set).map((e) => ({ el: e.el, names: e.names.filter((n) => radio.has(n)) })).filter((e) => e.names.length);
+    const g = state.gen || {};
+    const eff = {};
+    if (g.eff) for (const e of els) if (g.eff[e.el] > 0) eff[e.el] = g.eff[e.el];
+    if (!Object.keys(eff).length) {
+      // по умолчанию извлекается элемент целевого изотопа, иначе — первого радиоактивного дочернего другого элемента
+      let el = state.target && radio.has(state.target) ? TL.elementOf(state.target) : '';
+      if (!el) {
+        const rootEls = new Set(state.roots.map(TL.elementOf));
+        const d = state.set.find((x) => x.lambda > 0 && !rootEls.has(TL.elementOf(x.name)));
+        el = d ? TL.elementOf(d.name) : '';
+      }
+      if (el) eff[el] = 100;
+    }
+    return {
+      els, eff, unit: GEN_UNITS.includes(g.unit) ? g.unit : 'd',
+      interval: typeof g.interval === 'number' ? g.interval : 10, first: typeof g.first === 'number' ? g.first : null,
+      count: typeof g.count === 'number' ? g.count : 10,
+    };
+  }
+  /** График активностей на генераторе (логарифмическая шкала; зубцы — моменты отборов). */
+  function plotGenerator(cv, s, idx, names, sc, unitRu, f, actRu, marks) {
+    if (!cv || !cv.clientWidth) return;
+    const W = cv.clientWidth, H = cv.clientHeight || 220;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const css = getComputedStyle(document.documentElement);
+    const v = (...n) => { for (const x of n) { const y = css.getPropertyValue(x).trim(); if (y) return y; } return ''; };
+    const muted = v('--chart-text', '--ink-2') || '#4e5864', grid = v('--chart-grid', '--rule') || '#e7e9ed', axis = v('--chart-axis', '--rule-strong') || '#a3abb5';
+    g.font = '12px ' + (v('--font-ui') || 'system-ui, sans-serif');
+    let vmax = 0, vmin = Infinity;
+    for (const i of idx) for (const row of s.A) { const a = row[i] / f; if (a > vmax) vmax = a; if (a > 0 && a < vmin) vmin = a; }
+    if (!(vmax > 0)) return;
+    const hi = Math.ceil(Math.log10(vmax) + 1e-9);
+    let lo = Math.max(Math.floor(Math.log10(vmin)), hi - 10); if (hi - lo < 2) lo = hi - 2;
+    const L = 58, R = 12, T = 10, B = 38, pw = W - L - R, ph = H - T - B;
+    const tmax = s.t[s.t.length - 1] / sc || 1;
+    const x = (tu) => L + pw * tu / tmax;
+    const y = (a) => T + ph * (hi - (a > 0 ? Math.max(Math.log10(a), lo) : lo)) / (hi - lo);
+    g.lineWidth = 1; g.strokeStyle = grid; g.fillStyle = muted; g.textAlign = 'right'; g.textBaseline = 'middle';
+    const estep = Math.max(1, Math.ceil((hi - lo) / Math.max(2, Math.floor(ph / 26))));
+    for (let e = hi; e >= lo; e -= estep) { const yy = Math.round(y(Math.pow(10, e))) + 0.5; g.beginPath(); g.moveTo(L, yy); g.lineTo(W - R, yy); g.stroke(); g.fillText(pow10(e), L - 6, yy); }
+    const step = niceStep(tmax / Math.max(2, Math.floor(pw / 90)));
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    for (let tu = 0; tu <= tmax * 1.0001; tu += step) { const xx = Math.round(x(tu)) + 0.5; g.beginPath(); g.moveTo(xx, T); g.lineTo(xx, T + ph); g.stroke(); g.fillText(fmt(tu, 4), xx, T + ph + 6); }
+    g.fillText('t, ' + unitRu, L + pw / 2, T + ph + 21);
+    g.strokeStyle = axis; g.beginPath(); g.moveTo(L + 0.5, T); g.lineTo(L + 0.5, T + ph + 0.5); g.lineTo(W - R, T + ph + 0.5); g.stroke();
+    g.save(); g.translate(13, T + ph / 2); g.rotate(-Math.PI / 2); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('A, ' + actRu, 0, 0); g.restore();
+    if (marks && marks.length <= 40) {
+      g.save(); g.setLineDash([3, 4]); g.strokeStyle = axis;
+      for (const m of marks) { const xx = Math.round(x(m / sc)) + 0.5; g.beginPath(); g.moveTo(xx, T); g.lineTo(xx, T + ph); g.stroke(); }
+      g.restore();
+    }
+    g.save(); g.beginPath(); g.rect(L, T - 2, pw, ph + 4); g.clip();
+    g.lineWidth = 2; g.lineJoin = 'round';
+    idx.forEach((i, k) => {
+      const st = seriesStyle(k); g.strokeStyle = st.color; g.setLineDash(st.dash); g.beginPath();
+      s.t.forEach((t, p) => { const xx = x(t / sc), yy = y(s.A[p][i] / f); if (p) g.lineTo(xx, yy); else g.moveTo(xx, yy); });
+      g.stroke();
+    });
+    g.restore();
+  }
+  async function cmdGenerator() {
+    const T = 'Генератор: многократные отборы';
+    if (!TL || !TL.generator) return;
+    if (!state.set.length) { dialog({ title: T, html: '<p>Добавьте изотоп-родоначальник генератора (например, Th-229 или Th-228) и задайте его активность.</p>' }); return; }
+    const { A0, bad } = currentA0Bq();
+    if (bad.length || !Object.values(A0).some((a) => a > 0)) { dialog({ title: T, html: '<p>Сначала задайте начальные активности в таблице: генератор считается по ним.</p>' }); return; }
+    const au = actUnit(), f = ACT_UNITS[au].f, u = ACT_UNITS[au].ru;
+    const def = genDefaults();
+    const unitOpts = (sel) => GEN_UNITS.map((k) => `<option value="${k}"${k === sel ? ' selected' : ''}>${UNITS[k].ru}</option>`).join('');
+    const html = '<p>Исходная смесь — изотопы и начальные активности из таблицы. В каждый момент отбора из генератора химически ' +
+      'извлекается указанная доля изотопов выбранных элементов (элюат); остальное остаётся на генераторе и продолжает распадаться.</p>' +
+      '<div class="gen-grid">' +
+      `<label for="genInterval">Интервал между отборами</label><span class="inp-unit"><input id="genInterval" type="text" inputmode="decimal" autocomplete="off" value="${esc(fmtInput(def.interval))}"><select id="genUnit" aria-label="Единица времени">${unitOpts(def.unit)}</select></span>` +
+      `<label for="genFirst">Первый отбор через</label><span class="inp-unit"><input id="genFirst" type="text" inputmode="decimal" autocomplete="off" placeholder="как интервал" value="${def.first == null ? '' : esc(fmtInput(def.first))}"><span id="genUnitLbl">${UNITS[def.unit].ru}</span></span>` +
+      `<label for="genCount">Число отборов</label><input id="genCount" type="text" inputmode="numeric" autocomplete="off" value="${esc(String(def.count))}">` +
+      '</div>' +
+      '<p class="gen-els-head"><b>Что извлекается при отборе, %</b> <span class="note">(пусто — элемент остаётся на генераторе)</span></p>' +
+      '<div class="gen-els">' + def.els.map((e) => `<label class="gen-el" title="${esc(e.names.join(', '))}"><span class="gen-el-name"><b>${esc(e.el)}</b>` +
+        `<small>${esc(e.names.length > 2 ? e.names.slice(0, 2).join(', ') + '…' : e.names.join(', '))}</small></span>` +
+        `<input class="gen-eff" data-el="${esc(e.el)}" type="text" inputmode="decimal" autocomplete="off" aria-label="Доля ${esc(e.el)}, %" value="${def.eff[e.el] ? esc(fmtInput(def.eff[e.el])) : ''}" placeholder="0"></label>`).join('') +
+      '</div>' +
+      '<p class="msg error" id="genErr" role="alert" hidden></p><div id="genOut" class="gen-out"></div>';
+    let last = null;
+    const setBtns = () => { $$('#dlg button[value="xlsx"], #dlg button[value="use"]').forEach((b) => { b.disabled = !last; }); };
+    const fail = (m) => { const e = $('#genErr'); e.textContent = m; e.hidden = false; $('#genOut').innerHTML = ''; last = null; setBtns(); };
+    function read() {
+      const unit = $('#genUnit').value, sc = UNITS[unit].sec;
+      const iv = parseNum($('#genInterval').value), fv = parseNum($('#genFirst').value), cv = parseNum($('#genCount').value);
+      if (cv === null || isNaN(cv) || cv < 1 || cv > 1000 || Math.floor(cv) !== cv) return 'Число отборов — целое число от 1 до 1000.';
+      if (iv === null || isNaN(iv) || iv < 0 || (cv > 1 && !(iv > 0))) return 'Интервал между отборами — положительное число.';
+      if (fv !== null && (isNaN(fv) || fv < 0)) return 'Время первого отбора — число не меньше нуля.';
+      const eff = {}, effPct = {};
+      for (const inp of $$('#dlgBody .gen-eff')) {
+        const p = parseNum(inp.value);
+        if (p === null) continue;
+        if (isNaN(p) || p < 0 || p > 100) return `Доля ${inp.dataset.el} — число от 0 до 100 %.`;
+        if (p > 0) { eff[inp.dataset.el] = p / 100; effPct[inp.dataset.el] = p; }
+      }
+      if (!Object.keys(eff).length) return 'Укажите хотя бы один элемент, который извлекается при отборе (доля больше 0 %).';
+      const first = fv === null ? iv : fv;
+      if (cv === 1 && !(first > 0) && fv === null) return 'Задайте интервал или время первого отбора.';
+      return { unit, sc, interval: iv, first: fv, count: cv, eff, effPct, opts: { eff, interval: iv * sc, count: cv, first: first * sc } };
+    }
+    function runGen() {
+      $('#genErr').hidden = true;
+      const p = read();
+      if (typeof p === 'string') { fail(p); return; }
+      let res;
+      try { res = TL.generator(state.set, A0, p.opts); } catch (e) { fail(e.message); return; }
+      const gNew = { interval: p.interval, unit: p.unit, count: p.count, eff: p.effPct };
+      if (p.first !== null) gNew.first = p.first;
+      if (JSON.stringify(gNew) !== JSON.stringify(state.gen)) { state.gen = gNew; markDirty(); }
+      // изотопы элюата: по убыванию максимальной активности
+      const set = state.set;
+      const maxA = set.map((x, i) => Math.max(...res.eluate.map((row) => row[i])));
+      const cols = set.map((x, i) => i).filter((i) => set[i].lambda > 0 && maxA[i] > 0).sort((a, b) => maxA[b] - maxA[a]);
+      if (!cols.length) { fail('В выбранных элементах нет изотопов с активностью: элюат пуст.'); return; }
+      const shown = cols.slice(0, GEN_COLS), rest = cols.slice(GEN_COLS);
+      last = { res, p, cols, set };
+      const main = cols[0];
+      const total = res.eluate.reduce((s2, row) => s2 + row[main], 0);
+      const un = UNITS[p.unit].ru;
+      const tTxt = (sec) => fmt(sec / p.sc, 4);
+      const effTxt = Object.entries(p.effPct).map(([el, v]) => `${el} ${fmtInput(v)} %`).join(', ');
+      let sum = `<p class="gen-sum">Отборов: <b>${p.count}</b>` + (p.count > 1 ? `, каждые ${tTxt(p.opts.interval)} ${un}` : '') +
+        `, первый через ${tTxt(p.opts.first)} ${un}; извлекается ${esc(effTxt)}. ` +
+        `${esc(set[main].name)} в элюате: от ${fmt(Math.min(...res.eluate.map((r) => r[main])) / f)} до ${fmt(Math.max(...res.eluate.map((r) => r[main])) / f)} ${u}` +
+        (p.count > 1 ? `, всего за ${p.count} ${plural(p.count, ['отбор', 'отбора', 'отборов'])} ${fmt(total / f)} ${u}` : '') + ' (активности на момент отбора).</p>';
+      // на графике: родоначальники, прямые предшественники извлекаемых изотопов и сами извлекаемые
+      const keep = new Set(shown);
+      for (const i of shown) for (const pa of set[i].parents) if (set[pa.j].lambda > 0) keep.add(pa.j);
+      set.forEach((x, i) => { if (x.lambda > 0 && state.roots.includes(x.name)) keep.add(i); });
+      const plotIdx = Array.from(keep).sort((a2, b2) => a2 - b2).slice(0, 10);
+      sum += '<canvas id="genChart" class="gen-chart" aria-label="Активность на генераторе во времени"></canvas>' +
+        `<p class="gen-legend">${plotIdx.map((i, k) => `<span><i class="swatch" style="${swatchStyle(seriesStyle(k))}"></i> ${esc(set[i].name)}</span>`).join('')}<span class="note">на генераторе; зубцы — отборы</span></p>`;
+      const head = `<tr><th class="num">№</th><th class="num">Отбор через, ${un}</th>` + shown.map((i) => `<th class="num">${esc(set[i].name)}, ${u}</th>`).join('') +
+        (rest.length ? `<th class="num">прочие (${rest.length}), ${u}</th>` : '') + (cols.length > 1 ? `<th class="num">Всего, ${u}</th>` : '') + '</tr>';
+      const MAXROWS = 200;
+      const body = res.times.slice(0, MAXROWS).map((t, k) => {
+        const row = res.eluate[k];
+        const other = rest.reduce((s2, i) => s2 + row[i], 0), all = cols.reduce((s2, i) => s2 + row[i], 0);
+        return `<tr><td class="num">${k + 1}</td><td class="num">${tTxt(t)}</td>` + shown.map((i) => `<td class="num">${fmt(row[i] / f)}</td>`).join('') +
+          (rest.length ? `<td class="num">${fmt(other / f)}</td>` : '') + (cols.length > 1 ? `<td class="num">${fmt(all / f)}</td>` : '') + '</tr>';
+      }).join('');
+      const more = res.times.length > MAXROWS ? `<p class="note">Показаны первые ${MAXROWS} отборов из ${res.times.length}; все — в Excel.</p>` : '';
+      const pick = `<div class="gen-use"><label for="genPick">Элюат отбора №</label><select id="genPick">${res.times.map((t, k) => `<option value="${k}"${k === res.times.length - 1 ? ' selected' : ''}>${k + 1} (${tTxt(t)} ${un})</option>`).join('')}</select>` +
+        '<span class="note">«Элюат в расчёт» откроет его как новый расчёт: выдержка, чистота, протокол.</span></div>';
+      $('#genOut').innerHTML = sum + `<div class="table-wrap"><table class="grid gen-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>` + more + pick;
+      plotGenerator($('#genChart'), res.series, plotIdx, null, p.sc, un, f, u, p.count > 1 ? res.times : null);
+      setBtns();
+      const so = $('#genOut .gen-sum'); if (so && so.scrollIntoView) so.scrollIntoView({ block: 'nearest' });
+    }
+    function genWorkbook() {
+      const { res, p, cols, set } = last;
+      const un = UNITS[p.unit].ru;
+      const radio = set.map((x, i) => i).filter((i) => set[i].lambda > 0);
+      const info = [
+        [{ v: 'Генератор: многократные отборы', bold: true }],
+        ['Исходная смесь', Object.entries(A0).filter(([, a]) => a > 0).map(([n, a]) => `${n} ${fmt(a / f)} ${u}`).join('; ')],
+        ['Интервал, ' + un, p.interval], ['Первый отбор через, ' + un, p.opts.first / p.sc], ['Число отборов', p.count],
+        ['Извлекается', Object.entries(p.effPct).map(([el, v]) => `${el} ${fmtInput(v)} %`).join('; ')],
+        ['Активности', `${u}, на момент отбора`], [],
+      ];
+      const h1 = ['№', 'Отбор через, ' + un].concat(cols.map((i) => `${set[i].name}, ${u}`), ['Всего, ' + u]).map((v) => ({ v, bold: true }));
+      const rows1 = res.times.map((t, k) => [k + 1, t / p.sc].concat(cols.map((i) => res.eluate[k][i] / f), [cols.reduce((s2, i) => s2 + res.eluate[k][i], 0) / f]));
+      const h2 = ['№', 'Отбор через, ' + un].concat(radio.map((i) => `${set[i].name}, ${u}`)).map((v) => ({ v, bold: true }));
+      const rows2 = res.times.map((t, k) => [k + 1, t / p.sc].concat(radio.map((i) => res.before[k][i] / f)));
+      return window.HLXlsx.build([
+        { name: 'Элюат', rows: info.concat([h1], rows1), widths: [22, 16].concat(cols.map(() => 14), [14]) },
+        { name: 'Генератор перед отбором', rows: [[{ v: 'Активности на генераторе непосредственно перед каждым отбором', bold: true }], []].concat([h2], rows2), widths: [8, 16].concat(radio.map(() => 13)) },
+      ]);
+    }
+    const pr = dialog({
+      title: T, html, wide: true, focus: '#genInterval',
+      buttons: [{ label: 'Рассчитать', value: 'run', primary: true }, { label: 'Excel', value: 'xlsx' }, { label: 'Элюат в расчёт', value: 'use' }, { label: 'Закрыть', value: 'cancel' }],
+      validate: (v) => {
+        if (v === 'run') { runGen(); return false; }
+        if (v === 'xlsx') { if (last) saveBlob(genWorkbook(), baseName() + '-генератор.xlsx', XLSX_MIME).catch((e) => errorDlg('Ошибка экспорта', e)); return false; }
+        if (v === 'use') return !!last;
+        return true;
+      },
+    });
+    setBtns();
+    $('#genUnit').addEventListener('change', () => { $('#genUnitLbl').textContent = UNITS[$('#genUnit').value].ru; });
+    if (state.gen) runGen();
+    const r = await pr;
+    if (r !== 'use' || !last) return;
+    const k = Number(($('#genPick') || {}).value) || 0;
+    await useEluate(last, Math.min(Math.max(k, 0), last.res.times.length - 1));
+  }
+  /** Открывает элюат отбора k как новый расчёт (активности на момент отбора). */
+  async function useEluate(g, k) {
+    if (!(await confirmDiscard())) return;
+    const { res, cols, set } = g;
+    const au = actUnit(), f = ACT_UNITS[au].f;
+    const names = cols.map((i) => set[i].name);
+    const order = set.map((x) => x.name).filter((n) => names.includes(n));
+    const activities = {};
+    for (const n of order) activities[n] = Number((res.eluate[k][set.findIndex((x) => x.name === n)] / f).toPrecision(10));
+    const main = set[cols[0]].name;
+    const h = readHold();
+    const lim = limitFrac();
+    const overrides = {};
+    for (const [n, o] of Object.entries(state.overrides)) if (o && o.T != null) overrides[n] = { T: o.T };
+    try {
+      applyData({
+        format: FILE_FORMAT, roots: order, activities, actUnit: au, hold: h.ok ? h.value : DEFAULT_HOLD, holdUnit: h.ok ? h.unit : DEFAULT_UNIT,
+        purity: { target: order.includes(state.target) ? state.target : main, limitPercent: lim != null ? lim * 100 : 0.1, countProgeny: state.countProgeny },
+        overrides,
+      });
+    } catch (e) { errorDlg('Элюат не открыт', e); return; }
+    state.gen = null;
+    state.name = `элюат ${k + 1}`; state.handle = null; state.path = null;
+    markDirty(); updateTitle();
+    calc();
+  }
+
   // ---------- обновление данных IAEA ----------
   const IAEA_URL = 'https://www-nds.iaea.org/relnsd/v1/data?fields=ground_states&nuclides=all';
   const IAEA_KEY = 'halflife.iaeaUpdate';
@@ -1669,6 +1911,7 @@
     openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) loadText(f.text, f.name, { path: f.path }); }); },
     tab: selectTab,
     protocol: cmdProtocol, print: cmdPrint, findHold: cmdFindHold, uncertainty: cmdUncertainty, updateData: cmdUpdateData,
+    generator: cmdGenerator,
   };
   function run(cmd, arg) {
     const f = COMMANDS[cmd];

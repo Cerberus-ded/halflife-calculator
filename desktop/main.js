@@ -65,6 +65,7 @@ function buildMenu() {
       item('Обновить данные IAEA…', 'updateData'),
       { type: 'separator' },
       item('Подбор выдержки…', 'findHold'),
+      item('Генератор: многократные отборы…', 'generator'),
       item('Погрешность результата…', 'uncertainty'),
     ] },
     { label: 'При&меры', submenu: presets.length

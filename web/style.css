@@ -714,3 +714,30 @@ table.grid {
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* ============ Генератор: многократные отборы (окно «Данные → Генератор») ============ */
+.gen-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: center; margin: 12px 0; }
+.gen-grid > label { font-weight: 600; }
+.gen-grid .inp-unit { display: inline-flex; align-items: center; gap: 6px; }
+.gen-grid input[type="text"] { width: 110px; height: var(--ctl-h); text-align: right; }
+.gen-grid select { height: var(--ctl-h); }
+.gen-els-head { margin: 4px 0 6px !important; }
+.gen-els { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px 10px; margin: 0 0 10px; }
+.gen-el { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px 4px 8px; border: 1px solid var(--rule); border-radius: 6px; min-width: 0; }
+.gen-el-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.gen-el-name small { color: var(--ink-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gen-el input { width: 58px; height: 26px; text-align: right; flex: none; }
+.gen-el:has(input:not(:placeholder-shown)) { border-color: var(--accent-line); background: var(--accent-soft); }
+.gen-out:empty { display: none; }
+.gen-sum { margin: 12px 0 8px; padding: 8px 10px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent-line); font-variant-numeric: tabular-nums; }
+.gen-chart { display: block; width: 100%; height: 220px; }
+.gen-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 4px 0 8px; font-size: 12.5px; }
+.gen-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.gen-legend .swatch { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+.gen-use { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; }
+.gen-use label { font-weight: 600; }
+.gen-use select { height: var(--ctl-h); max-width: 100%; }
+@media (max-width: 600px) {
+  .gen-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .gen-chart { height: 180px; }
+}

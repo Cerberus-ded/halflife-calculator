@@ -3,8 +3,9 @@
  *  - подбор выдержки: спад до уровня, накопление до уровня, максимум активности, чистота не ниже заданной;
  *  - погрешность результата методом Монте-Карло (A₀ и T½ с заданной относительной погрешностью);
  *  - разбор выгрузки IAEA LiveChart (CSV ground_states) и обновление периодов полураспада в базе;
- *  - сборка протокола в формате Word (.docx).
- * API: window.HLTools = {evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx}.
+ *  - сборка протокола в формате Word (.docx);
+ *  - генератор с многократными отборами (элюирование дочернего элемента через равные промежутки).
+ * API: window.HLTools = {evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, generator, elementsOf, elementOf}.
  * Активности — в Бк, время — в секундах, доли — от 0 до 1.
  */
 (function (global) {
@@ -328,7 +329,64 @@
     return zip(files, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   }
 
-  const api = { evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, parseCsv };
+  // ---------- генератор с многократными отборами ----------
+  /** Химический элемент нуклида: «Ac-225» → «Ac», «Pa-234m» → «Pa». */
+  const elementOf = (name) => String(name).split('-')[0];
+  /** Элементы набора в порядке появления: [{el, names: [имена нуклидов]}]. */
+  function elementsOf(set) {
+    const map = new Map();
+    for (const x of set) { const e = elementOf(x.name); if (!map.has(e)) map.set(e, []); map.get(e).push(x.name); }
+    return Array.from(map, ([el, names]) => ({ el, names }));
+  }
+  const GEN_MAX = 1000;
+  /**
+   * Генератор: смесь с начальными активностями A0 распадается; в моменты отбора из неё химически извлекается
+   * доля eff[элемент] (0…1) каждого изотопа этого элемента, остальное остаётся и продолжает распадаться.
+   * opts: {eff: {Ac: 1}, interval: с, count: число отборов, first: с (первый отбор; по умолчанию = interval),
+   *        points: точек графика на интервал (40), series: false — без графика}.
+   * Возвращает {times, eluate: [[A_i, Бк]], eluateN: [[N_i]], before: [[A_i генератора перед отбором]],
+   *   after: [[A_i после отбора]], final, N (атомы генератора после последнего отбора), series: {t, A}}.
+   */
+  function generator(set, A0, opts) {
+    const o = opts || {};
+    const lam = set.map((x) => x.lambda);
+    const frac = set.map((x) => {
+      const e = Number(o.eff && o.eff[elementOf(x.name)]);
+      return isFinite(e) ? Math.min(Math.max(e, 0), 1) : 0;
+    });
+    const count = o.count == null ? 1 : Math.floor(Number(o.count));
+    if (!(count >= 1 && count <= GEN_MAX)) throw new Error(`Число отборов — от 1 до ${GEN_MAX}.`);
+    const interval = Number(o.interval) || 0;
+    if (count > 1 && !(interval > 0)) throw new Error('Интервал между отборами должен быть больше нуля.');
+    const first = o.first != null ? Number(o.first) : interval;
+    if (!(first >= 0) || !isFinite(first)) throw new Error('Время первого отбора должно быть не меньше нуля.');
+    const PTS = Math.max(2, Math.min(200, Math.floor(o.points || 40)));
+    const act = (N) => N.map((v, i) => v * lam[i]);
+    let N = set.map((x) => (x.lambda > 0 ? (Number(A0[x.name]) || 0) / x.lambda : 0));
+    const res = { times: [], eluate: [], eluateN: [], before: [], after: [], series: o.series === false ? null : { t: [0], A: [act(N)] } };
+    let t = 0;
+    for (let k = 0; k < count; k++) {
+      const tk = first + k * interval, dt = tk - t;
+      if (dt > 0) {
+        const sol = core().solve(set, N);
+        if (res.series) for (let p = 1; p <= PTS; p++) { const tt = dt * p / PTS; res.series.t.push(t + tt); res.series.A.push(act(sol.N(tt))); }
+        N = sol.N(dt);
+      }
+      res.before.push(act(N));
+      const out = N.map((v, i) => v * frac[i]);
+      N = N.map((v, i) => v - out[i]);
+      res.times.push(tk); res.eluateN.push(out); res.eluate.push(act(out));
+      const after = act(N);
+      res.after.push(after);
+      if (res.series) { res.series.t.push(tk); res.series.A.push(after); }
+      t = tk;
+    }
+    res.final = res.after[res.after.length - 1];
+    res.N = N;
+    return res;
+  }
+
+  const api = { evaluator, purityAt, findHold, uncertainty, parseIaeaCsv, applyIaea, docx, parseCsv, generator, elementsOf, elementOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.HLTools = api;
 })(typeof window !== 'undefined' ? window : globalThis);
