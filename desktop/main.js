@@ -66,6 +66,7 @@ function buildMenu() {
       { type: 'separator' },
       item('Подбор выдержки…', 'findHold'),
       item('Погрешность результата…', 'uncertainty'),
+      item('Схема распада…', 'scheme'),
     ] },
     { label: 'При&меры', submenu: presets.length
       ? presets.map((p) => ({ label: p.title, click: () => send('preset', p.id) }))

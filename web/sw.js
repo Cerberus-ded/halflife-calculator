@@ -5,10 +5,10 @@
  */
 'use strict';
 const CACHE_PREFIX = 'halflife-calc-';
-const CACHE = CACHE_PREFIX + 'v2';
+const CACHE = CACHE_PREFIX + 'v3';
 const FILES = [
   'index.html', 'style.css', 'manifest.webmanifest',
-  'nucdb.js', 'core.js', 'formulas.js', 'xlsx.js', 'tools.js', 'presets.js', 'help.js', 'app.js',
+  'nucdb.js', 'core.js', 'formulas.js', 'xlsx.js', 'tools.js', 'scheme.js', 'presets.js', 'help.js', 'app.js',
   'icon.svg', 'icon-192.png', 'icon-512.png',
 ];
 
