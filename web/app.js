@@ -1470,6 +1470,14 @@
       img.src = url;
     });
   }
+  /** PNG схемы для протокола Word: {bytes, width, height} (размер в CSS-пикселях). */
+  async function schemePng() {
+    if (!SCH || !state.roots.length || typeof document === 'undefined') return null;
+    const d = schemeData();
+    const pic = SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '', standalone: true });
+    const blob = await svgToPng(pic.svg, pic.width, pic.height);
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), width: pic.width, height: pic.height };
+  }
   async function cmdScheme() {
     if (!SCH) return;
     if (!state.roots.length) { await dialog({ title: 'Схема распада', html: '<p>Сначала добавьте изотоп: схема рисуется для выбранных цепочек.</p>' }); return; }
@@ -1686,6 +1694,8 @@
       { table: d.rows.map((row, i) => (d.over.includes(i) ? row.map((v) => ({ v, fill: 'FBE3E1' })) : row)), header: true, boldRows: d.bold,
         alignRight: d.rows[0].map((_, i) => i).filter((i) => i > 0) }];
     if (d.purityLine) blocks.push({ p: d.purityLine, bold: true });
+    const pic = await schemePng().catch(() => null); // картинка необязательна: без canvas протокол выйдет без неё
+    if (pic) blocks.push({ h2: 'Схема распада' }, { image: pic.bytes, width: pic.width, height: pic.height, alt: 'Схема распада ' + state.result.roots.join(', ') });
     blocks.push({ h2: 'Модель и формулы' });
     if (d.formulas) blocks.push({ mono: d.formulas });
     blocks.push({ p: '' }, { p: 'Расчёт выполнил: ______________________    Дата: ____________' }, { p: 'Проверил: ______________________    Дата: ____________' });
@@ -1710,6 +1720,7 @@
       `<h2>Исходные данные</h2>${tbl(d.info)}<p><b>Начальные активности</b> (остальные изотопы — 0):</p>${tbl(d.inputs, { header: true, num: 3 })}` +
       `<h2>Результат</h2>${tbl(d.rows, { header: true, bold: d.bold, over: d.over, num: 1 })}` +
       (d.purityLine ? `<p><b>${esc(d.purityLine)}</b></p>` : '') +
+      (SCH ? `<h2>Схема распада</h2><div class="print-scheme">${schemeSvg(schemeData(), true).replace('class="scheme"', 'class="scheme-file"')}</div>` : '') +
       (d.formulas ? `<h2>Модель и формулы</h2><pre>${esc(d.formulas)}</pre>` : '') +
       '<div class="sign"><div>Расчёт выполнил: ______________________ Дата: ____________</div><div>Проверил: ______________________ Дата: ____________</div></div>';
     $('#printArea').innerHTML = html;

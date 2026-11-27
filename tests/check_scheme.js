@@ -1,9 +1,14 @@
 /* Проверка web/scheme.js: раскладка схемы распада (рамки не перекрываются, стрелки идут вниз,
  * подписи не выходят за картинку) и содержимое SVG. Запуск: node tests/check_scheme.js */
 'use strict';
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { WEB, C, P, ok, done } = require('./common');
 const S = require(path.join(WEB, 'scheme.js'));
+require(path.join(WEB, 'xlsx.js'));
+const T = require(path.join(WEB, 'tools.js'));
 
 console.log('Схема распада (scheme.js)');
 const B = S.BOX;
@@ -100,4 +105,26 @@ ok(!bad.length, `раскладка ${cases.length} наборов: ` + (bad.sli
   ok(empty.width > 0 && empty.height > 0 && empty.svg.endsWith('</svg>'), 'пустой набор не ломает картинку');
 }
 
-process.exit(done('Схема распада') ? 1 : 0);
+// ---- рисунок в протоколе .docx ----
+(async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const blob = T.docx([{ h1: 'Протокол' }, { h2: 'Схема распада' }, { image: new Uint8Array(png), width: 400, height: 3000, alt: 'Схема <U-238>' }, { p: 'после' }], { title: 'Тест' });
+  const file = path.join(os.tmpdir(), 'hl-test-scheme.docx');
+  fs.writeFileSync(file, Buffer.from(await blob.arrayBuffer()));
+  const py = spawnSync('python3', ['-c', `import zipfile,sys,re,xml.dom.minidom as m
+z=zipfile.ZipFile(sys.argv[1]); n=z.namelist()
+for k in n:
+  if k.endswith('.xml') or k.endswith('.rels'): m.parseString(z.read(k))
+d=z.read('word/document.xml').decode(); r=z.read('word/_rels/document.xml.rels').decode(); t=z.read('[Content_Types].xml').decode()
+cx,cy=map(int,re.search(r'<wp:extent cx="(\\d+)" cy="(\\d+)"',d).groups())
+ok='word/media/image1.png' in n and z.read('word/media/image1.png')[:4]==b'\\x89PNG' and 'r:embed="rIdImg1"' in d and 'Target="media/image1.png"' in r and 'Extension="png"' in t and 'Схема &lt;U-238&gt;' in d
+print('OK' if ok else 'BAD', cx, cy)`, file], { encoding: 'utf8' });
+  const [st, cx, cy] = (py.stdout || '').trim().split(' ');
+  ok(st === 'OK', '.docx с рисунком: ZIP, XML, связь и тип PNG ' + (py.stderr || '').trim().slice(0, 300));
+  const maxH = (16838 - 2 * 1134) * 635 * 0.85;
+  ok(Number(cy) <= maxH + 1 && Math.abs(Number(cx) / Number(cy) - 400 / 3000) < 1e-3, `высокая схема уменьшена под страницу с сохранением пропорций (${cx}×${cy} EMU)`);
+  const plain = T.docx([{ p: 'x' }], {});
+  const buf = Buffer.from(await plain.arrayBuffer()).toString('latin1');
+  ok(!buf.includes('image/png') && !buf.includes('media/'), 'без рисунков протокол прежний (нет лишних частей)');
+  process.exit(done('Схема распада') ? 1 : 0);
+})();

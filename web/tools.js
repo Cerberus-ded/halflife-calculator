@@ -280,9 +280,22 @@
     });
     return x + '</w:tbl>' + para('', { after: 60 });
   }
+  /** Рисунок PNG по центру строки; размер — в EMU (1 px при 96 dpi = 9525 EMU). */
+  function picture(rid, n, cx, cy, alt) {
+    return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="120"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
+      `<wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Рисунок ${n}" descr="${xesc(alt || '')}"/>` +
+      '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>' +
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>' +
+      `<pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.png"/><pic:cNvPicPr/></pic:nvPicPr>` +
+      `<pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+      `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+      '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>';
+  }
   /**
-   * blocks: [{h1|h2|p|small: текст} | {table: rows, header, widths, alignRight, boldRows} | {mono: текст}].
-   * landscape — альбомная страница для широких таблиц. Возвращает Blob .docx.
+   * blocks: [{h1|h2|p|small: текст} | {table: rows, header, widths, alignRight, boldRows} | {mono: текст} |
+   * {image: байты PNG (Uint8Array), width, height — размер в пикселях при 96 dpi, alt}].
+   * Рисунок уменьшается под ширину текста и высоту страницы. landscape — альбомная страница для широких таблиц.
+   * Возвращает Blob .docx.
    */
   function docx(blocks, o) {
     o = o || {};
@@ -290,7 +303,15 @@
     const pageW = land ? 16838 : 11906, pageH = land ? 11906 : 16838, margin = 1134;
     const textW = pageW - 2 * margin;
     let body = '';
+    const media = [];
     for (const b of blocks) {
+      if (b.image) {
+        const n = media.length + 1, rid = 'rIdImg' + n;
+        const k = Math.min(1, (textW * 635) / (b.width * 9525), ((pageH - 2 * margin) * 635 * 0.85) / (b.height * 9525));
+        body += picture(rid, n, Math.round(b.width * 9525 * k), Math.round(b.height * 9525 * k), b.alt);
+        media.push({ rid, name: `media/image${n}.png`, data: b.image });
+        continue;
+      }
       if (b.h1 != null) body += para(b.h1, { style: 'Heading1' });
       else if (b.h2 != null) body += para(b.h2, { style: 'Heading2' });
       else if (b.p != null) body += para(b.p, { bold: b.bold, color: b.color });
@@ -299,7 +320,9 @@
       else if (b.table) body += table(b.table, Object.assign({ width: textW }, b));
     }
     const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"' +
+      ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"' +
+      ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>' + body +
       `<w:sectPr><w:pgSz w:w="${pageW}" w:h="${pageH}"${land ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`;
     const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
       '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="ru-RU"/></w:rPr></w:rPrDefault>' +
@@ -311,6 +334,7 @@
     const files = [
       { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+        (media.length ? '<Default Extension="png" ContentType="image/png"/>' : '') +
         '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
         '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
         '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>' },
@@ -320,9 +344,11 @@
       { name: 'docProps/core.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
         `<dc:title>${xesc(o.title || 'Протокол расчёта')}</dc:title><dc:creator>Калькулятор полураспада</dc:creator></cp:coreProperties>` },
       { name: 'word/_rels/document.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+        media.map((m) => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${m.name}"/>`).join('') + '</Relationships>' },
       { name: 'word/document.xml', data: doc },
       { name: 'word/styles.xml', data: styles },
+      ...media.map((m) => ({ name: 'word/' + m.name, data: m.data })),
     ];
     const zip = (global.HLXlsx && global.HLXlsx.zip) || (typeof require === 'function' ? (require('./xlsx.js'), globalThis.HLXlsx.zip) : null);
     return zip(files, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
