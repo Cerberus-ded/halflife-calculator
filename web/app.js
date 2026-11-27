@@ -458,6 +458,7 @@
     renderResult();
     selectTab(state.tab);
     scheduleFormulas();
+    if (state.dirty) scheduleDraft(false);
   }
 
   /** Любое изменение ввода: документ «грязный», прежний результат больше не соответствует данным. */
@@ -898,8 +899,8 @@
   }
 
   // ---------- документ ----------
-  function markDirty() { if (!state.dirty) { state.dirty = true; updateTitle(); } }
-  function setClean() { state.dirty = false; updateTitle(); }
+  function markDirty() { if (!state.dirty) { state.dirty = true; updateTitle(); } scheduleDraft(); }
+  function setClean() { state.dirty = false; updateTitle(); clearDraft(); hideDraftNote(); }
   function updateTitle() {
     const dn = $('#docName'); if (dn) { dn.textContent = state.name; dn.title = state.path || state.name; }
     show($('#dirty'), state.dirty);
@@ -986,6 +987,7 @@
       buttons: [{ label: 'Сохранить', value: 'save', primary: true }, { label: 'Не сохранять', value: 'discard' }, { label: 'Отмена', value: 'cancel' }],
     });
     if (r === 'save') return await cmdSave(false);
+    if (r === 'discard') clearDraft();
     return r === 'discard';
   }
 
@@ -1029,6 +1031,7 @@
     try { applyData(d); } catch (e) { errorDlg('Не удалось открыть файл', e); return false; }
     state.name = name || UNTITLED; state.handle = (where && where.handle) || null; state.path = (where && where.path) || null;
     setClean();
+    if (where) addRecent(serialize());
     return true;
   }
 
@@ -1040,16 +1043,16 @@
         const res = await host.saveFile({ path: as ? null : state.path, suggestedName: suggested, data,
           filters: [{ name: 'Расчёт полураспада', extensions: ['hlc'] }] });
         if (!res) return false;
-        state.path = res.path; state.name = res.name; setClean(); return true;
+        state.path = res.path; state.name = res.name; setClean(); addRecent(data); return true;
       }
       if (window.showSaveFilePicker && !android && !window.HLSaveHook) {
         let h = as ? null : state.handle;
         if (!h) h = await window.showSaveFilePicker({ suggestedName: suggested, types: [{ description: 'Расчёт полураспада', accept: { 'application/json': [FILE_EXT] } }] });
         const w = await h.createWritable(); await w.write(data); await w.close();
-        state.handle = h; state.name = h.name; setClean(); return true;
+        state.handle = h; state.name = h.name; setClean(); addRecent(data); return true;
       }
       const ok = await saveBlob(new Blob([data], { type: HLC_MIME }), suggested, HLC_MIME);
-      if (ok) { state.name = suggested; setClean(); }
+      if (ok) { state.name = suggested; setClean(); addRecent(data); }
       return ok;
     } catch (e) {
       if (e && e.name === 'AbortError') return false;
@@ -1100,6 +1103,138 @@
       fr.onerror = () => reject(fr.error);
       fr.readAsDataURL(blob);
     });
+  }
+
+  // ---------- черновик и недавние расчёты ----------
+  // Черновик: несохранённый расчёт держится в localStorage и возвращается после перезагрузки страницы,
+  // закрытия вкладки или падения программы. Снимается при сохранении, «Новом» и ответе «Не сохранять».
+  // Недавние: копии последних сохранённых и открытых расчётов (до RECENT_MAX) — открыть одним щелчком.
+  const DRAFT_KEY = 'halflife.draft';
+  const RECENT_KEY = 'halflife.recent';
+  const RECENT_MAX = 8;
+  const RECENT_MAX_TEXT = 300000;
+  let draftTimer = 0, draftTime = 0; // draftTime — время последней правки (не расчёта)
+  function scheduleDraft(edit) { if (edit !== false) draftTime = Date.now(); clearTimeout(draftTimer); draftTimer = setTimeout(writeDraft, 400); }
+  function writeDraft() {
+    clearTimeout(draftTimer); draftTimer = 0;
+    if (!state.dirty) return;
+    let text; try { text = serialize(); } catch (e) { return; }
+    storeSet(DRAFT_KEY, JSON.stringify({ v: 1, text, name: state.name, path: state.path || null, calc: !!state.result, time: draftTime || Date.now() }));
+  }
+  function flushDraft() { if (draftTimer) writeDraft(); }
+  function clearDraft() { clearTimeout(draftTimer); draftTimer = 0; storeSet(DRAFT_KEY, null); }
+
+  /** При запуске: вернуть несохранённый расчёт, если он остался. */
+  function restoreDraft(raw) {
+    if (!raw) return false;
+    let d = null; try { d = JSON.parse(raw); } catch (e) { d = null; }
+    if (!d || d.v !== 1 || typeof d.text !== 'string') { storeSet(DRAFT_KEY, null); return false; }
+    try { applyData(JSON.parse(d.text)); } catch (e) { storeSet(DRAFT_KEY, null); resetDoc(); return false; }
+    state.name = typeof d.name === 'string' && d.name ? d.name : UNTITLED;
+    state.path = host && typeof d.path === 'string' ? d.path : null; state.handle = null;
+    state.dirty = true; updateTitle();
+    draftTime = Number(d.time) || Date.now();
+    storeSet(DRAFT_KEY, raw); // resetDoc при запуске снял черновик — возвращаем, пока не сохранили
+    if (d.calc) calc();
+    showDraftNote(d.time);
+    return true;
+  }
+  function showDraftNote(time) {
+    let n = $('#draftNote');
+    if (!n) {
+      n = document.createElement('div'); n.id = 'draftNote'; n.className = 'draft-note'; n.setAttribute('role', 'status');
+      const intro = $('.intro'), main = $('main');
+      if (intro) intro.after(n); else if (main) main.prepend(n); else return;
+      n.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-draft]'); if (!b) return;
+        if (b.dataset.draft === 'reset') resetDoc();
+        hideDraftNote();
+      });
+    }
+    const when = fmtWhen(time);
+    n.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 1-6.2 6.2M1.8 3.2V8h4.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 4.6V8l2.4 1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      `<p><b>Восстановлен несохранённый расчёт</b>${when ? ' (' + esc(when) + ')' : ''}. Сохраните его, если он нужен, или начните заново.</p>` +
+      '<div class="draft-actions"><button type="button" data-draft="reset">Начать заново</button>' +
+      '<button type="button" class="draft-x" data-draft="hide" aria-label="Скрыть сообщение" title="Скрыть"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>';
+    n.hidden = false;
+  }
+  function hideDraftNote() { const n = $('#draftNote'); if (n) n.hidden = true; }
+
+  function fmtWhen(ms) {
+    const d = new Date(ms); if (!ms || isNaN(d.getTime())) return '';
+    const now = new Date();
+    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const day = (x) => x.getFullYear() + '-' + x.getMonth() + '-' + x.getDate();
+    if (day(d) === day(now)) return 'сегодня, ' + time;
+    const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    if (day(d) === day(y)) return 'вчера, ' + time;
+    const o = { day: 'numeric', month: 'long' }; if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
+    return d.toLocaleDateString('ru-RU', o) + ', ' + time;
+  }
+
+  function readRecent() {
+    let a; try { a = JSON.parse(storeGet(RECENT_KEY) || '[]'); } catch (e) { a = []; }
+    return Array.isArray(a) ? a.filter((r) => r && typeof r.text === 'string' && typeof r.name === 'string') : [];
+  }
+  function writeRecent(list) {
+    if (!list.length) { storeSet(RECENT_KEY, null); return; }
+    list = list.slice(0, RECENT_MAX);
+    // хранилище переполнено — убираем самые старые
+    while (list.length && !storeSet(RECENT_KEY, JSON.stringify(list))) list = list.slice(0, -1);
+  }
+  // в браузере пути нет: разные расчёты под одним именем «расчёт.hlc» различаем по изотопам
+  const recentKey = (r) => (r.path ? 'p:' + r.path : 'n:' + r.name + '|' + String(r.sum || '').split(' · ')[0]);
+  function addRecent(text) {
+    if (typeof text !== 'string' || !text || text.length > RECENT_MAX_TEXT) return;
+    const h = readHold();
+    const sum = (state.roots.length ? state.roots.join(', ') : 'без изотопов') + (h.ok ? ' · ' + holdText(h.value, h.unit) : '');
+    const r = { name: state.name, path: (host && state.path) || null, time: Date.now(), sum, text };
+    const k = recentKey(r);
+    writeRecent([r, ...readRecent().filter((x) => recentKey(x) !== k)]);
+  }
+  function recentHtml(list) {
+    if (!list.length) return '<p class="recent-empty">Здесь появятся расчёты, которые вы сохраняли или открывали на этом устройстве.</p>';
+    return '<ul class="recent-list">' + list.map((r, i) =>
+      `<li><button type="button" class="recent-open" data-open="${i}" title="${esc(r.path || r.name)}">` +
+      `<span class="recent-name">${esc(r.name)}</span><span class="recent-sub">${esc(r.sum || '')}</span>` +
+      `<span class="recent-time">${esc(fmtWhen(r.time))}</span></button>` +
+      `<button type="button" class="recent-del" data-del="${i}" aria-label="Убрать «${esc(r.name)}» из списка" title="Убрать из списка">` +
+      '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></li>').join('') + '</ul>';
+  }
+  async function cmdRecent() {
+    let list = readRecent();
+    const render = () => {
+      const box = $('#recentBox'); if (box) box.innerHTML = recentHtml(list);
+      const clr = $('#dlg button[value="clear"]'); if (clr) clr.disabled = !list.length;
+    };
+    const p = dialog({
+      title: 'Недавние расчёты',
+      html: '<p class="recent-note">Последние расчёты, которые вы сохраняли или открывали. Открывается копия данных на момент сохранения.</p><div id="recentBox"></div>',
+      buttons: [{ label: 'Закрыть', value: 'cancel', primary: true }, { label: 'Очистить список', value: 'clear' }],
+    });
+    render();
+    const body = $('#dlgBody');
+    const onClick = (e) => {
+      const o = e.target.closest('[data-open]'), del = e.target.closest('[data-del]');
+      if (o) { $('#dlg').close('open:' + o.dataset.open); return; }
+      if (del) {
+        const i = Number(del.dataset.del); list.splice(i, 1); writeRecent(list); render();
+        const next = $(`#recentBox [data-open="${Math.min(i, list.length - 1)}"]`); if (next) next.focus();
+      }
+    };
+    body.addEventListener('click', onClick);
+    const r = await p;
+    body.removeEventListener('click', onClick);
+    if (r === 'clear') {
+      const ok = await dialog({ title: 'Очистить список', html: `<p>Убрать из списка все расчёты (${list.length})? Сами файлы не удаляются.</p>`,
+        buttons: [{ label: 'Очистить', value: 'ok', primary: true }, { label: 'Отмена', value: 'cancel' }] });
+      if (ok === 'ok') writeRecent([]); else cmdRecent();
+      return;
+    }
+    const m = /^open:(\d+)$/.exec(r || ''); if (!m) return;
+    const item = list[Number(m[1])]; if (!item) return;
+    if (!(await confirmDiscard())) return;
+    loadText(item.text, item.name, { path: host ? item.path : null, recent: true });
   }
 
   // ---------- экспорт в Excel ----------
@@ -1664,7 +1799,7 @@
   async function closeRequest() { if (await confirmDiscard()) { state.dirty = false; if (host && host.closeNow) host.closeNow(); } }
   const COMMANDS = {
     new: cmdNew, open: cmdOpen, save: () => cmdSave(false), saveAs: () => cmdSave(true), export: cmdExport,
-    data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout,
+    data: cmdData, resetOverrides: cmdResetOverrides, guide: cmdGuide, about: cmdAbout, recent: cmdRecent,
     calc, edit: unlock, preset: loadPreset, closeRequest,
     openPath: (f) => { if (f) confirmDiscard().then((ok) => { if (ok) loadText(f.text, f.name, { path: f.path }); }); },
     tab: selectTab,
@@ -1805,7 +1940,9 @@
       if (await confirmDiscard()) openFileObject(f);
     });
 
-    window.addEventListener('beforeunload', (e) => { if (state.dirty && !host) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('beforeunload', (e) => { flushDraft(); if (state.dirty && !host) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('pagehide', flushDraft);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
   }
 
   // ---------- связь с оболочкой (Electron) ----------
@@ -1828,7 +1965,9 @@
     bindMenus();
     bindKeys();
     bindUI();
+    const draft = storeGet(DRAFT_KEY); // читаем до resetDoc: он снимает черновик
     resetDoc();
+    restoreDraft(draft);
     selectTab('result');
     if (host) {
       if (host.onCommand) host.onCommand((cmd, arg) => run(cmd, arg));
