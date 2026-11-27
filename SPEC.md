@@ -97,6 +97,9 @@ mpmath, numpy, scipy, sympy. Если менялся `desktop/`, дополни�
   `dist/halflife-calc-web.zip`.
 - Android: `android/build.sh <рабочая папка>` → `dist/halflife-calc.apk` (нужны aapt, dx, zipalign, apksigner).
 - GitHub Pages: `.github/workflows/pages.yml` публикует `web/` после тестов, когда Pages включены в настройках репозитория.
+- Версии: номер в `desktop/package.json`, `web/app.js`, `web/help.js`, `android/AndroidManifest.xml` и `CHANGELOG.md`
+  (проверяет `tests/check_version.js`). Новый номер в `main` → `.github/workflows/release.yml` создаёт тег `vX.Y` и релиз
+  со сборкой для Windows и веб-архивом. Правила — раздел «Версии» в ROADMAP.md.
 
 ## Общая папка проекта
 
