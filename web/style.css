@@ -30,7 +30,7 @@
   --bar-2: #e8ebf0;         /* наведение */
   --ink: #1c2127;
   --ink-2: #4e5864;
-  --ink-3: #6a7480;
+  --ink-3: #5f6975;
   --rule: #dfe3e8;
   --rule-strong: #b4bcc6;
   --accent: #2a4fd7;
@@ -352,6 +352,7 @@ body.electron { --top-h: 0px; }
 
 /* ---------- Таблицы ---------- */
 .table-wrap { overflow: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--pane); }
+.result-wrap:focus-visible, .dlg-body .table-wrap:focus-visible { outline-offset: -2px; }
 table.grid {
   width: 100%; border-collapse: separate; border-spacing: 0;
   font-size: 15px; font-variant-numeric: tabular-nums lining-nums;
@@ -607,6 +608,7 @@ details.more[open] > summary { border-bottom-left-radius: 0; border-bottom-right
 .dlg-x svg { width: 16px; height: 16px; }
 .dlg-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 22px; font-size: 15px; line-height: 1.6; }
 .dlg-body:focus { outline: none; }
+.dlg-body.kbd-focus { outline: 2px solid var(--focus); outline-offset: -2px; }
 .dlg-body > :first-child { margin-top: 0; }
 .dlg-body > :last-child { margin-bottom: 0; }
 .dlg-body h3 { margin: 20px 0 6px; font-size: 16px; }
