@@ -326,9 +326,7 @@
   function renderChips() {
     const box = $('#rootChips'); if (!box) return;
     box.innerHTML = state.roots.map((r) =>
-      `<span class="chip">${esc(r)} <button type="button" class="chip-x" data-remove="${esc(r)}" title="Убрать цепочку ${esc(r)}" aria-label="Убрать ${esc(r)}"${state.locked ? ' disabled' : ''}>×</button></span>`).join('') +
-      (SCH && state.roots.length ? '<button type="button" class="chip-scheme" id="schemeBtn" data-cmd="scheme" title="Картинка цепочки: кто во что распадается, доли ветвлений, T½ и активности">' +
-        '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="1.5" width="6" height="4" rx="1"/><rect x="1" y="10.5" width="6" height="4" rx="1"/><rect x="9" y="10.5" width="6" height="4" rx="1"/><path d="M8 5.5v2.5M4 10.5V8h8v2.5"/></svg>Схема распада</button>' : '');
+      `<span class="chip">${esc(r)} <button type="button" class="chip-x" data-remove="${esc(r)}" title="Убрать цепочку ${esc(r)}" aria-label="Убрать ${esc(r)}"${state.locked ? ' disabled' : ''}>×</button></span>`).join('');
   }
 
   function renderInputTable() {
@@ -365,7 +363,7 @@
   function renderInput() {
     renderChips();
     renderInputTable();
-    scheduleFormulas();
+    scheduleViews();
   }
 
   /** Подсвечивает неверные числа; возвращает {A0, bad}. */
@@ -614,7 +612,7 @@
     setLocked(true);
     renderResult();
     selectTab(state.tab);
-    scheduleFormulas();
+    scheduleViews();
     if (state.dirty) scheduleDraft(false);
   }
 
@@ -623,7 +621,7 @@
     markDirty();
     clearPrint();
     if (state.result) { state.result = null; renderResult(); }
-    scheduleFormulas();
+    scheduleViews();
   }
 
   function setLocked(on) {
@@ -933,6 +931,7 @@
     $$('.tab-panel').forEach((p) => { const a = p.dataset.panel === name; p.hidden = !a; p.classList.toggle('active', a); });
     if (name === 'chart') drawChart();
     if (name === 'formulas') renderFormulas();
+    if (name === 'scheme') renderScheme();
   }
 
   // ---------- график ----------
@@ -1216,10 +1215,14 @@
   }
 
   // ---------- формулы ----------
-  let formulaTimer = 0;
-  function scheduleFormulas() {
-    clearTimeout(formulaTimer);
-    formulaTimer = setTimeout(() => { if (state.tab === 'formulas') renderFormulas(); }, 120);
+  let viewTimer = 0;
+  /** Перерисовать открытую вкладку «Схема» или «Формулы» после изменения данных (с задержкой, чтобы не на каждую букву). */
+  function scheduleViews() {
+    clearTimeout(viewTimer);
+    viewTimer = setTimeout(() => {
+      if (state.tab === 'formulas') renderFormulas();
+      if (state.tab === 'scheme') renderScheme();
+    }, 120);
   }
   function formulaModel() {
     const r = state.result;
@@ -2547,34 +2550,44 @@
     const blob = await svgToPng(pic.svg, pic.width, pic.height);
     return { bytes: new Uint8Array(await blob.arrayBuffer()), width: pic.width, height: pic.height };
   }
-  async function cmdScheme() {
-    if (!SCH) return;
-    if (!state.roots.length) { await dialog({ title: 'Схема распада', html: '<p>Сначала добавьте изотоп: схема рисуется для выбранных цепочек.</p>' }); return; }
+  const SCHEME_NOTE = 'Кто во что распадается: у стрелок — тип распада и доля ветвления, в рамках — период полураспада и активность.';
+  /** Вкладка «Схема»: картинка цепочки, пояснение и кнопки скачивания. */
+  function renderScheme() {
+    const box = $('#schemeBox'); if (!box) return;
+    const has = !!SCH && state.roots.length > 0;
+    show($('#schemeEmpty'), !has); show(box, has);
+    $$('#tp-scheme .toolbar-actions button').forEach((b) => { b.disabled = !has; });
+    const note = $('#schemeNote');
+    if (!has) {
+      box.innerHTML = '';
+      if (note) note.textContent = SCH ? SCHEME_NOTE : 'Модуль схемы (scheme.js) не загружен.';
+      return;
+    }
     const d = schemeData();
     const pic = SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '' });
     const n = d.set.length, nb = pic.layout.edges.filter((e) => e.br < 0.9995).length;
-    const html = `<p class="scheme-note">${esc(n + ' ' + plural(n, ['изотоп', 'изотопа', 'изотопов']))}` +
-      (nb ? `, ${esc(nb + ' ' + plural(nb, ['ветвь', 'ветви', 'ветвей']))} с долей меньше 100 %` : '') + '. ' +
-      `Подпись у стрелки — тип распада и доля ветвления. ${esc(d.note)}</p>` +
-      `<div class="scheme-wrap" tabindex="0" aria-label="Схема распада, прокручивается">${pic.svg}</div>`;
+    if (note) note.textContent = n + ' ' + plural(n, ['изотоп', 'изотопа', 'изотопов']) +
+      (nb ? `, ${nb} ${plural(nb, ['ветвь', 'ветви', 'ветвей'])} с долей меньше 100 %` : '') + '. ' +
+      'У стрелки — тип распада и доля ветвления. ' + (d.note || '');
+    box.innerHTML = pic.svg;
+  }
+  /** Скачать схему: 'png' (для Word и презентаций) или 'svg' (вектор). */
+  function downloadScheme(kind) {
+    if (!SCH || !state.roots.length) return Promise.resolve();
+    const d = schemeData();
+    const pic = SCH.svg(d.set, d.roots, { fmtT: C.fmtHalfLife, values: d.values, target: state.target || '', standalone: true });
     const base = baseName() + '-схема';
-    await dialog({
-      title: 'Схема распада', html, wide: true,
-      buttons: [{ label: 'Закрыть', value: 'ok', primary: true }, { label: 'Скачать SVG', value: 'svg' }, { label: 'Скачать PNG', value: 'png' }],
-      validate: (v) => {
-        if (v === 'svg') {
-          saveBlob(new Blob([schemeSvg(d, true)], { type: 'image/svg+xml' }), base + '.svg', 'image/svg+xml').catch((e) => errorDlg('Ошибка сохранения', e));
-          return false;
-        }
-        if (v === 'png') {
-          svgToPng(schemeSvg(d, true), pic.width, pic.height)
-            .then((b) => saveBlob(b, base + '.png', 'image/png'))
-            .catch((e) => errorDlg('Ошибка сохранения', e));
-          return false;
-        }
-        return true;
-      },
-    });
+    const job = kind === 'svg'
+      ? saveBlob(new Blob([pic.svg], { type: 'image/svg+xml' }), base + '.svg', 'image/svg+xml')
+      : svgToPng(pic.svg, pic.width, pic.height).then((b) => saveBlob(b, base + '.png', 'image/png'));
+    return job.catch((e) => errorDlg('Ошибка сохранения', e));
+  }
+  /** Команда «Схема распада» (меню Windows «Расчёт», Ctrl+3): открыть вкладку «Схема» и показать её. */
+  function cmdScheme() {
+    selectTab('scheme');
+    const tab = $('#tab-scheme');
+    const wide = window.matchMedia && matchMedia('(min-width: 1100px)').matches;
+    if (tab && tab.scrollIntoView && !wide) tab.scrollIntoView({ block: 'start' });
   }
 
   // ---------- обновление данных IAEA ----------
@@ -2938,7 +2951,7 @@
     const au = $('#actUnit'); if (au) au.addEventListener('change', () => { renderActUnit(); changed(); });
     const fh = $('#findHoldBtn'); if (fh) fh.addEventListener('click', cmdFindHold);
     // чистота: меняет только вид результата, ввод не разблокирует
-    const ts = $('#targetSel'); if (ts) ts.addEventListener('change', () => { state.target = ts.value; markDirty(); clearPrint(); renderResult(); });
+    const ts = $('#targetSel'); if (ts) ts.addEventListener('change', () => { state.target = ts.value; markDirty(); clearPrint(); renderResult(); scheduleViews(); });
     const li = $('#limitInp'); if (li) li.addEventListener('input', () => { markDirty(); clearPrint(); renderResult(); });
     const pc = $('#progenyChk'); if (pc) pc.addEventListener('change', () => { state.countProgeny = pc.checked; markDirty(); clearPrint(); renderResult(); });
     $('#calcBtn').addEventListener('click', calc);
@@ -2949,6 +2962,8 @@
     $$('.fmt-tabs .fmt').forEach((b) => b.addEventListener('click', () => { state.fmt = b.dataset.fmt; renderFormulas(); }));
     $$('.chart-scale .fmt').forEach((b) => b.addEventListener('click', () => setChartScale(b.dataset.scale)));
     const cpng = $('#chartPngBtn'); if (cpng) cpng.addEventListener('click', downloadChartPng);
+    const spng = $('#schemePngBtn'); if (spng) spng.addEventListener('click', () => downloadScheme('png'));
+    const ssvg = $('#schemeSvgBtn'); if (ssvg) ssvg.addEventListener('click', () => downloadScheme('svg'));
     const cb = $('#copyFormulaBtn'); if (cb) cb.addEventListener('click', copyFormulas);
     const ans = $('#answer'); if (ans) ans.addEventListener('click', (e) => { if (e.target.closest('#copyAnswerBtn')) copyAnswer(); });
     const db = $('#downloadFormulaBtn'); if (db) db.addEventListener('click', downloadFormulas);

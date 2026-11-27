@@ -1,4 +1,4 @@
-/* Сценарий «Схема распада» (Playwright): кнопка у выбранных изотопов и пункт меню, картинка до и после расчёта,
+/* Сценарий «Схема распада» (Playwright): вкладка «Схема» в карточке результата, картинка до и после расчёта,
  * выделение цели, скачивание SVG и PNG, тёмная тема, телефон.
  * Запуск: node desktop/test/e2e-scheme.js [папка для скриншотов]. */
 'use strict';
@@ -28,50 +28,50 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     const lastSaved = async () => { const s = await p.evaluate(() => window.__saved.pop()); return s ? { name: s.name, mime: s.mime, buf: Buffer.from(s.b64, 'base64') } : null; };
 
     await p.evaluate((t) => App.loadText(t, 'ac.hlc'), DOC);
-    check(await p.isVisible('#schemeBtn'), 'кнопка «Схема распада» у выбранных изотопов');
+    check(await p.isVisible('#tab-scheme'), 'вкладка «Схема» в карточке результата');
+    check(!(await p.$('#rootChips button:not(.chip-x)')), 'в шаге 1 у выбранных изотопов нет лишних кнопок');
 
     // до расчёта: A₀ из таблицы
-    await p.click('#schemeBtn'); await p.waitForTimeout(200);
-    check(await p.isVisible('#dlg .scheme-wrap svg.scheme'), 'диалог со схемой открыт');
-    const nodes = await p.$$eval('#dlg .sch-node .sch-name', (a) => a.map((x) => x.textContent));
+    await p.click('#tab-scheme'); await p.waitForTimeout(200);
+    check(await p.isVisible('#schemeBox svg.scheme') && !(await p.isVisible('#schemeEmpty')), 'вкладка со схемой открыта');
+    const nodes = await p.$$eval('#schemeBox .sch-node .sch-name', (a) => a.map((x) => x.textContent));
     check(nodes.length === 9 && nodes[0] === 'Ac-225' && nodes.includes('Bi-209'), 'в схеме 9 изотопов: ' + nodes.join(', '));
-    const acts0 = await p.$$eval('#dlg .sch-node.has-a .sch-act', (a) => a.map((x) => x.textContent));
+    const acts0 = await p.$$eval('#schemeBox .sch-node.has-a .sch-act', (a) => a.map((x) => x.textContent));
     check(acts0.length === 1 && /^A₀ = 1·10⁶ Бк$/.test(acts0[0]), 'до расчёта подписана A₀: ' + acts0.join(' | '));
-    const lbls = await p.$$eval('#dlg .sch-lbl', (a) => a.map((x) => x.textContent));
+    const lbls = await p.$$eval('#schemeBox .sch-lbl', (a) => a.map((x) => x.textContent));
     check(lbls.includes('α 2,14 %') && lbls.includes('β⁻ 97,9 %'), 'ветвление Bi-213 подписано');
     // цвета из темы страницы (а не чёрный по умолчанию)
-    const fill = await p.$eval('#dlg .sch-node.has-a .sch-box', (e) => getComputedStyle(e).fill);
+    const fill = await p.$eval('#schemeBox .sch-node.has-a .sch-box', (e) => getComputedStyle(e).fill);
     check(fill !== 'rgb(0, 0, 0)' && fill !== 'none', 'рамки окрашены стилями темы: ' + fill);
     if (OUT) await p.screenshot({ path: path.join(OUT, 'scheme-before.png') });
-    await p.click('#dlg button[value="svg"]'); await p.waitForTimeout(250);
+    await p.click('#schemeSvgBtn'); await p.waitForTimeout(250);
     const svg = await lastSaved();
     check(svg && svg.name === 'ac-схема.svg' && svg.mime === 'image/svg+xml', 'скачано ' + (svg && svg.name));
     const text = svg ? svg.buf.toString('utf8') : '';
     check(text.startsWith('<svg xmlns="http://www.w3.org/2000/svg"') && text.includes('<style>') && text.includes('Bi-213'), 'файл SVG самостоятельный (со стилем)');
-    check(await p.isVisible('#dlg .scheme-wrap'), 'после скачивания диалог остаётся открытым');
-    await p.click('#dlg button[value="png"]');
+    await p.click('#schemePngBtn');
     await p.waitForFunction(() => window.__saved.length > 0, null, { timeout: 8000 }).catch(() => null);
     const png = await lastSaved();
     check(png && png.name === 'ac-схема.png' && png.buf.slice(1, 4).toString() === 'PNG' && png.buf.length > 5000, 'скачано PNG: ' + (png && png.name + ', ' + png.buf.length + ' байт'));
-    await p.click('#dlg button[value="ok"]'); await p.waitForTimeout(150);
-    check(!(await p.isVisible('#dlg')), 'диалог закрыт');
+    check(!(await p.isVisible('#dlg')), 'скачивание без лишних окон');
 
-    // после расчёта: активность через выдержку, цель выделена; пункт меню
+    // после расчёта: активность через выдержку, цель выделена; команда «Схема распада» (меню Windows) открывает вкладку
     await p.click('#calcBtn'); await p.waitForTimeout(250);
-    check(await p.isVisible('#schemeBtn'), 'кнопка видна и после расчёта (ввод заблокирован)');
+    check(await p.getAttribute('#tab-scheme', 'aria-selected') === 'true', 'после расчёта остаётся открытой вкладка «Схема»');
+    await p.click('#tab-result'); await p.waitForTimeout(100);
     await p.evaluate(() => { const s = document.querySelector('#targetSel'); s.value = 'Bi-213'; s.dispatchEvent(new Event('change', { bubbles: true })); });
     await p.waitForTimeout(100);
     await p.evaluate(() => { App.run('scheme'); }); await p.waitForTimeout(200);
-    const note = await p.textContent('#dlg .scheme-note');
+    check(await p.getAttribute('#tab-scheme', 'aria-selected') === 'true', 'команда «Схема распада» открывает вкладку');
+    const note = await p.textContent('#schemeNote');
     check(/Активность через 10 сут/.test(note), 'пояснение: ' + note);
-    const acts = await p.$$eval('#dlg .sch-node.has-a', (a) => a.map((x) => x.querySelector('.sch-name').textContent + ': ' + x.querySelector('.sch-act').textContent));
+    const acts = await p.$$eval('#schemeBox .sch-node.has-a', (a) => a.map((x) => x.querySelector('.sch-name').textContent + ': ' + x.querySelector('.sch-act').textContent));
     check(acts.length >= 7 && acts.some((s) => /^Bi-213: A = 49\d[\s\u00a0\u202f]\d{3} Бк$/.test(s)), 'после расчёта — A через 10 сут: ' + acts.slice(0, 4).join(' | '));
-    const tgt = await p.$$eval('#dlg .sch-node.target .sch-name', (a) => a.map((x) => x.textContent));
+    const tgt = await p.$$eval('#schemeBox .sch-node.target .sch-name', (a) => a.map((x) => x.textContent));
     check(tgt.join() === 'Bi-213', 'целевой изотоп обведён: ' + tgt.join());
-    const stableN = await p.$eval('#dlg .sch-node.stable .sch-act', (e) => e.textContent).catch(() => '');
+    const stableN = await p.$eval('#schemeBox .sch-node.stable .sch-act', (e) => e.textContent).catch(() => '');
     check(/^N = /.test(stableN), 'у стабильного — накопленные атомы: ' + stableN);
     if (OUT) await p.screenshot({ path: path.join(OUT, 'scheme-after.png') });
-    await p.keyboard.press('Escape'); await p.waitForTimeout(150);
 
     // протокол Word: схема вставлена рисунком
     await p.evaluate(() => { App.run('protocol'); });
@@ -94,34 +94,33 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     // тёмная тема: подписи светлые
     await p.emulateMedia({ colorScheme: 'dark' });
     await p.evaluate(() => { App.run('scheme'); }); await p.waitForTimeout(200);
-    const nameFill = await p.$eval('#dlg .sch-name', (e) => getComputedStyle(e).fill);
+    const nameFill = await p.$eval('#schemeBox .sch-name', (e) => getComputedStyle(e).fill);
     const lum = (nameFill.match(/\d+/g) || [0, 0, 0]).slice(0, 3).reduce((s, v) => s + Number(v), 0) / 3;
     check(lum > 150, 'в тёмной теме названия светлые: ' + nameFill);
     if (OUT) await p.screenshot({ path: path.join(OUT, 'scheme-dark.png') });
-    await p.keyboard.press('Escape'); await p.waitForTimeout(150);
     await p.emulateMedia({ colorScheme: 'light' });
 
-    // телефон: диалог в пределах экрана, схема прокручивается внутри
+    // телефон: схема в пределах экрана и прокручивается внутри рамки
     await p.setViewportSize({ width: 390, height: 800 });
     await p.evaluate(() => { App.run('scheme'); }); await p.waitForTimeout(250);
     const dims = await p.evaluate(() => {
-      const d = document.querySelector('#dlg').getBoundingClientRect();
-      const w = document.querySelector('#dlg .scheme-wrap');
-      return { dl: d.left, dr: d.right, vw: innerWidth, sw: w.scrollWidth, cw: w.clientWidth, sh: w.scrollHeight, ch: w.clientHeight, page: document.documentElement.scrollWidth };
+      const w = document.querySelector('#schemeBox'); const d = w.getBoundingClientRect();
+      const t = [...document.querySelectorAll('.tabs .tab')].map((x) => x.getBoundingClientRect());
+      return { dl: d.left, dr: d.right, vw: innerWidth, sw: w.scrollWidth, cw: w.clientWidth, sh: w.scrollHeight, ch: w.clientHeight, page: document.documentElement.scrollWidth,
+        tabs: Math.max(...t.map((r) => r.right)) <= innerWidth && Math.min(...t.map((r) => r.left)) >= 0 };
     });
-    check(dims.dl >= 0 && dims.dr <= dims.vw && dims.page <= dims.vw, `на телефоне диалог в экране (${Math.round(dims.dl)}…${Math.round(dims.dr)} из ${dims.vw})`);
+    check(dims.dl >= 0 && dims.dr <= dims.vw && dims.page <= dims.vw, `на телефоне схема в экране (${Math.round(dims.dl)}…${Math.round(dims.dr)} из ${dims.vw})`);
+    check(dims.tabs, 'на телефоне все четыре вкладки помещаются в ширину');
     check(dims.sh > dims.ch, 'длинная схема прокручивается внутри рамки');
     if (OUT) await p.screenshot({ path: path.join(OUT, 'scheme-phone.png') });
-    await p.keyboard.press('Escape');
 
     // без изотопов кнопки нет
     await p.setViewportSize({ width: 1280, height: 860 });
     await p.evaluate(() => { App.run('edit'); }); await p.waitForTimeout(150);
     await p.click('.chip-x[data-remove="Ac-225"]'); await p.waitForTimeout(150);
-    check(!(await p.$('#schemeBtn')), 'без изотопов кнопки «Схема распада» нет');
     await p.evaluate(() => { App.run('scheme'); }); await p.waitForTimeout(150);
-    check(/Сначала добавьте изотоп/.test(await p.textContent('#dlgBody')), 'пункт меню без изотопов подсказывает, что делать');
-    await p.keyboard.press('Escape');
+    check(await p.isVisible('#schemeEmpty') && !(await p.isVisible('#schemeBox')), 'без изотопов вкладка подсказывает, что делать');
+    check(await p.$eval('#schemePngBtn', (e) => e.disabled) && await p.$eval('#schemeSvgBtn', (e) => e.disabled), 'без изотопов скачивать нечего — кнопки неактивны');
 
     check(!errs.length, 'ошибок JS нет' + (errs.length ? ': ' + errs.join('; ') : ''));
   } finally { await b.close(); }

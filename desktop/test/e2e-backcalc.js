@@ -28,7 +28,7 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     const out = async () => p.textContent('#bcOut');
     const applyDisabled = async () => p.$eval('#dlg button[value="apply"]', (e) => e.disabled);
 
-    check(await p.isVisible('#backCalcBtn'), 'кнопка «Пересчитать от измерения» над таблицей');
+    check(await p.isVisible('#backCalcBtn'), 'ссылка «Пересчитать от измерения» под таблицей');
     await p.click('#backCalcBtn'); await p.waitForTimeout(150);
     check(await p.isVisible('#dlg #bcA'), 'диалог открыт');
     check(await p.$eval('#bcName', (e) => e.value) === 'Ac-225' && await p.$eval('#bcFrom', (e) => e.value) === 'root:Ac-225', 'по умолчанию: измерили Ac-225, вначале только Ac-225');
@@ -57,7 +57,7 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     check(await p.$eval('#hold', (e) => e.value) === '2' && await p.$eval('#holdUnit', (e) => e.value) === 'd', 'выдержка поставлена 2 сут');
     const bi = await p.$$eval('#resultTable tbody tr', (rows) => { const r = rows.find((x) => x.querySelector('td.iso') && x.querySelector('td.iso').textContent === 'Bi-213'); return r ? r.querySelectorAll('td')[2].getAttribute('title') : ''; });
     check(rel(num(bi), 3.7e7) < 1e-4, 'расчёт для проверки: A(Bi-213, 2 сут) = ' + bi);
-    check(!(await p.isVisible('#backCalcBtn')), 'после расчёта кнопка скрыта (ввод заблокирован)');
+    check(!(await p.isVisible('#backCalcBtn')), 'после расчёта ссылка скрыта (ввод заблокирован)');
 
     // из меню при заблокированном вводе, соотношение из таблицы
     await p.evaluate(() => App.loadText(JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Th-229', 'Th-228'], activities: { 'Th-229': 1e6, 'Th-228': 1e3 }, hold: 7, holdUnit: 'd' }), 'th.hlc'));
@@ -78,7 +78,7 @@ const DOC = JSON.stringify({ format: 'halflife-calc', version: 3, roots: ['Ac-22
     await p.evaluate(() => { App.run('edit'); });
     await p.setViewportSize({ width: 390, height: 800 }); await p.waitForTimeout(100);
     const page = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: innerWidth, btn: (() => { const r = document.querySelector('#backCalcBtn').getBoundingClientRect(); return [r.left, r.right]; })() }));
-    check(page.sw <= page.vw && page.btn[0] >= 0 && page.btn[1] <= page.vw, `на телефоне кнопка в экране, без прокрутки вбок (${Math.round(page.btn[0])}…${Math.round(page.btn[1])} из ${page.vw})`);
+    check(page.sw <= page.vw && page.btn[0] >= 0 && page.btn[1] <= page.vw, `на телефоне ссылка в экране, без прокрутки вбок (${Math.round(page.btn[0])}…${Math.round(page.btn[1])} из ${page.vw})`);
     await p.click('#backCalcBtn'); await p.waitForTimeout(150);
     const d = await p.evaluate(() => { const r = document.querySelector('#dlg').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.querySelector('#dlg form').scrollWidth <= document.querySelector('#dlg form').clientWidth + 1]; });
     check(d[0] >= 0 && d[1] <= d[2] && d[3], 'на телефоне диалог помещается по ширине');

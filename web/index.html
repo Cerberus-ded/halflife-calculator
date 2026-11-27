@@ -26,7 +26,7 @@
 <header class="topbar">
   <div class="app-name">
     <img class="brand" src="icon.svg" alt="" width="26" height="26">
-    <span>Калькулятор распада</span>
+    <span>Калькулятор полураспада</span>
   </div>
   <nav class="menubar" id="menubar" aria-label="Главное меню">
     <div class="menu">
@@ -52,13 +52,16 @@
         <button type="button" role="menuitem" data-cmd="ptable"><span>Таблица Менделеева…</span></button>
         <button type="button" role="menuitem" data-cmd="resetOverrides"><span>Сбросить правки T½</span></button>
         <button type="button" role="menuitem" data-cmd="updateData"><span>Обновить данные IAEA…</span></button>
-        <hr>
+      </div>
+    </div>
+    <div class="menu">
+      <button class="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false">Инструменты</button>
+      <div class="menu-list" role="menu">
         <button type="button" role="menuitem" data-cmd="findHold"><span>Подбор выдержки…</span></button>
-        <button type="button" role="menuitem" data-cmd="generator"><span>Генератор: многократные отборы…</span></button>
         <button type="button" role="menuitem" data-cmd="backCalc"><span>Пересчёт от измерения…</span></button>
         <button type="button" role="menuitem" data-cmd="uncertainty"><span>Погрешность результата…</span></button>
         <button type="button" role="menuitem" data-cmd="mass"><span>Масса и активность…</span></button>
-        <button type="button" role="menuitem" data-cmd="scheme"><span>Схема распада…</span></button>
+        <button type="button" role="menuitem" data-cmd="generator"><span>Генератор: многократные отборы…</span></button>
       </div>
     </div>
     <div class="menu">
@@ -150,10 +153,6 @@
           <option value="mCi">мКи — милликюри</option>
           <option value="Ci">Ки — кюри</option>
         </select>
-        <button id="backCalcBtn" class="caption-btn" type="button" data-cmd="backCalc" title="Измерили активность через какое-то время — программа найдёт, какой она была вначале">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M2.4 2.2v2.6H5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 5v3.2l2 1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-          <span>Пересчитать от измерения</span>
-        </button>
       </div>
 
       <div id="emptyState" class="empty">
@@ -176,6 +175,8 @@
       </div>
       <p class="hint table-hint"><b>Период полураспада</b> — время, за которое активность уменьшается вдвое. Он взят из справочника;
         нажмите на него, если нужно своё значение. <b>Стабильный</b> — изотоп, который больше не распадается, а только накапливается.</p>
+      <p class="hint backcalc-hint">Знаете активность только на другую дату?
+        <button id="backCalcBtn" class="link-btn" type="button" data-cmd="backCalc" title="Измерили активность через какое-то время — программа найдёт, какой она была вначале">Пересчитать от измерения</button></p>
     </div>
 
     <!-- Шаг 3 -->
@@ -265,6 +266,9 @@
       <button class="tab" type="button" role="tab" data-tab="chart" id="tab-chart" aria-controls="tp-chart" aria-selected="false">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2v12h12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M3.5 4c2 5 4.5 7.5 10 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         График</button>
+      <button class="tab" type="button" role="tab" data-tab="scheme" id="tab-scheme" aria-controls="tp-scheme" aria-selected="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="1.5" width="6" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="1" y="10.5" width="6" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="10.5" width="6" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 5.5v2.5M4 10.5V8h8v2.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        Схема</button>
       <button class="tab" type="button" role="tab" data-tab="formulas" id="tab-formulas" aria-controls="tp-formulas" aria-selected="false">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5c-1.6 0-2.2.8-2.5 2.5L6.6 12c-.3 1.4-.9 1.8-2.1 1.8M5 6.5h5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         Формулы</button>
@@ -344,6 +348,33 @@
       </div>
       <div id="chartLegend" class="legend"></div>
       <div class="chart-box"><canvas id="chart" role="img" aria-label="График активности изотопов со временем"></canvas></div>
+    </div>
+
+    <div class="tab-panel" data-panel="scheme" id="tp-scheme" role="tabpanel" aria-labelledby="tab-scheme" hidden>
+      <div class="toolbar">
+        <p class="panel-note" id="schemeNote">Кто во что распадается: у стрелок — тип распада и доля ветвления, в рамках — период полураспада и активность.</p>
+        <div class="toolbar-actions">
+          <button id="schemePngBtn" type="button" title="Сохранить схему картинкой PNG — для Word и презентаций">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>PNG</span>
+          </button>
+          <button id="schemeSvgBtn" type="button" title="Сохранить схему в SVG — векторная картинка, не теряет чёткость при увеличении">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7.2L8 10.7l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>SVG</span>
+          </button>
+        </div>
+      </div>
+      <div id="schemeEmpty" class="empty">
+        <svg class="empty-ico" viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="17" y="5" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+          <rect x="5" y="34" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+          <rect x="29" y="34" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M24 14v8M12 34v-6h24v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p class="empty-title">Здесь появится схема распада</p>
+        <p class="empty-text">Выберите изотоп в шаге 1 — программа нарисует, во что он превращается.</p>
+      </div>
+      <div id="schemeBox" class="scheme-wrap" tabindex="0" role="region" aria-label="Схема распада, прокручивается" hidden></div>
     </div>
 
     <div class="tab-panel" data-panel="formulas" id="tp-formulas" role="tabpanel" aria-labelledby="tab-formulas" hidden>
