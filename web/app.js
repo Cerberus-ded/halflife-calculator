@@ -22,7 +22,7 @@
   const UNTITLED = 'Без имени';
   const FILE_EXT = '.hlc';
   // Что ещё открывается через «Файл → Открыть…» и перетаскиванием: формулы и таблицы (HLImport)
-  const FORMULA_EXT = ['.mpl', '.mw', '.tex', '.py', '.txt', '.csv', '.tsv', '.xlsx'];
+  const FORMULA_EXT = ['.mpl', '.tex', '.py', '.txt', '.csv', '.tsv', '.xlsx'];
   const OPEN_EXT = [FILE_EXT, '.json'].concat(IMP ? FORMULA_EXT : []);
   const FILE_FORMAT = 'halflife-calc';
   const FILE_VERSION = 3; // 3: единица активности, дополнительные сроки, даты выдержки
@@ -2978,7 +2978,7 @@
       if (!f) return;
       e.preventDefault();
       const ext = (f.name.match(/\.\w+$/) || [''])[0].toLowerCase();
-      if (!OPEN_EXT.includes(ext)) {
+      if (!OPEN_EXT.includes(ext) && !(IMP && ext === '.mw')) { // .mw — окно загрузки объяснит, как сохранить в .mpl
         dialog({ title: 'Открытие файла', html: IMP
           ? `<p>Перетащите файл расчёта (.hlc) или файл с формулами: ${esc(FORMULA_EXT.join(', '))}.</p>`
           : '<p>Перетащите файл расчёта с расширением .hlc.</p>' });

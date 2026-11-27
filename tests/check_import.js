@@ -137,6 +137,8 @@ function sameResult(tag, r, m, tol = 1e-9) {
     ['ветви больше 1', 'lBi212 := 1.9e-4;\ndiff(NBi212(t),t) = -lBi212*NBi212(t);\ndiff(NPo212(t),t) = -lPo212*NPo212(t) + 0.7*lBi212*NBi212(t);\ndiff(NTl208(t),t) = -lTl208*NTl208(t) + 0.5*lBi212*NBi212(t);', /сумма долей ветвлений Bi-212 больше 1/],
     ['непонятный текст', 'привет, как дела', /Не удалось узнать формат/, 'заметки.txt'],
     ['пустой .mpl', 'привет, как дела', /не нашлось ни одного изотопа/],
+    ['рабочий лист Maple .mw (XML)', '<?xml version="1.0" encoding="UTF-8"?>\n<Worksheet><Text-field><Input>lTh229 := 1e-12;\ndiff(NTh229(t), t) = -lTh229*NTh229(t);</Input></Text-field></Worksheet>', /Maple Input \(\.mpl\)/, 'расчёт.mw'],
+    ['XML без расширения .mw', '<?xml version="1.0"?><Worksheet></Worksheet>', /рабочий лист Maple/, 'x.txt'],
   ];
   for (const [tag, txt, re, name] of errs) {
     try { I.parse(txt, name || 'x.mpl'); ok(false, `ошибка «${tag}» не замечена`); } catch (e) { ok(re.test(e.message), `ошибка «${tag}»: ${e.message}`); }

@@ -742,7 +742,8 @@
     if (/^\s*\{/.test(s)) { try { const d = JSON.parse(s); if (d && (d.format || d.roots)) return 'hlc'; } catch (e) { /* не JSON */ } }
     if (/\\(begin|frac|lambda|nuc|documentclass)\b/.test(s)) return 'latex';
     if (/^\s*(import numpy|from scipy|import math)|^\s*(T_half|branches|half_lives?)\s*=\s*[[{]/m.test(s)) return 'python';
-    if (/\bdiff\s*\(\s*\w+\s*\(\s*t\s*\)\s*,\s*t\s*\)|:=|≔/.test(s) || ext === 'mpl' || ext === 'mw') return 'maple';
+    if (/^\s*<\?xml|<Worksheet\b/.test(s) || ext === 'mw') return 'mw';
+    if (/\bdiff\s*\(\s*\w+\s*\(\s*t\s*\)\s*,\s*t\s*\)|:=|≔/.test(s) || ext === 'mpl') return 'maple';
     if (/dN_?\w+\s*\/\s*dt|^\s*λ_\w+\s*=/m.test(s)) return 'text';
     if (looksLikeTable(s)) return 'table';
     return null;
@@ -930,6 +931,8 @@
       case 'python': return parsePython(s);
       case 'text': return parseText(s);
       case 'table': return parseTable(s);
+      // рабочий лист Maple (.mw) — XML с двумерным вводом; разбирается только код Maple Input
+      case 'mw': throw new ImportError('Это рабочий лист Maple (.mw). Откройте его в Maple и сохраните как Maple Input (.mpl): Файл → Экспорт → Maple Input, — или скопируйте код в текстовый файл .mpl.');
       default: throw new ImportError('Не удалось узнать формат. Поддерживаются: Maple (.mpl), LaTeX (.tex), Python (.py), текст формул калькулятора (.txt), таблица «изотоп — активность» (CSV) и Excel (.xlsx).');
     }
   }

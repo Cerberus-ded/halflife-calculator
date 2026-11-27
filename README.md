@@ -21,13 +21,6 @@
 
 ### В браузере (любой компьютер)
 
-Если для репозитория включены GitHub Pages, веб-версия открывается по адресу
-`https://cerberus-ded.github.io/halflife-calculator/` и обновляется сама после каждого изменения ветки `main`
-(`.github/workflows/pages.yml`). Включить: Settings → Pages → Source: **GitHub Actions**. Для закрытого репозитория
-Pages есть только на платном плане GitHub; сам сайт Pages открыт всем, у кого есть адрес.
-
-Без интернета:
-
 1. Распакуйте `halflife-calc-web.zip` в любую папку.
 2. В папке `halflife-calc-web` дважды щёлкните `index.html`. Подойдут Chrome, Edge, Яндекс Браузер, Firefox, Safari.
 
@@ -176,6 +169,14 @@ Ctrl+E — экспорт в Excel, Ctrl+P — печать протокола, 
 | `android/` | Сборка APK (`android/build.sh`) |
 | `tests/` | Тесты |
 | `.github/workflows/pages.yml` | Публикация `web/` на GitHub Pages (если Pages включены) |
+
+### Публикация на GitHub Pages
+
+`.github/workflows/pages.yml` при каждом изменении `main` в `web/` или `tests/` прогоняет `validate_db`, `check_presets`,
+`check_import` и выкладывает папку `web/` на GitHub Pages: `https://cerberus-ded.github.io/halflife-calculator/`.
+Пока Pages не включены, публикация пропускается без ошибки. Включить: Settings → Pages → Build and deployment →
+Source: **GitHub Actions**. Для закрытого репозитория Pages есть только на платном плане GitHub. Сайт Pages открыт всем,
+у кого есть адрес, вместе с готовыми примерами (в том числе с числами заказчика) — решить до включения.
 
 ### Тесты
 
