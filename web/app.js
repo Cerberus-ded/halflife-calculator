@@ -18,7 +18,7 @@
   const android = window.AndroidHost || null; // Android WebView
 
   const APP_TITLE = 'Калькулятор полураспада';
-  const APP_VERSION = '1.1';
+  const APP_VERSION = '1.2';
   const UNTITLED = 'Без имени';
   const FILE_EXT = '.hlc';
   // Что ещё открывается через «Файл → Открыть…» и перетаскиванием: формулы и таблицы (HLImport)
