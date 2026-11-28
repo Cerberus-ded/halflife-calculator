@@ -1,0 +1,104 @@
+# Компактная версия для Windows (папка windows/): сборка halflife-calc.exe на Linux и запуск на настоящей Windows.
+# Самопроверка (--selftest) считает пример в окне WebView2, сохраняет файлы через оболочку, проверяет второй запуск
+# с файлом и делает снимок экрана (в журнале между SCREENSHOT-BEGIN и SCREENSHOT-END, base64 PNG).
+name: Компактная версия для Windows
+
+on:
+  pull_request:
+    paths: ['windows/**', 'web/**', '.github/workflows/windows-exe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Сборка exe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: windows/go.mod
+          cache-dependency-path: windows/go.sum
+      - name: windres (значок и сведения о файле)
+        run: sudo apt-get update -q && sudo apt-get install -y -q binutils-mingw-w64-x86-64
+      - name: Сборка
+        run: bash windows/build.sh "$RUNNER_TEMP/out"
+      - name: Проверки Go
+        working-directory: windows
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...
+          go test ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halflife-calc-exe
+          path: ${{ runner.temp }}/out/halflife-calc.exe
+          retention-days: 7
+
+  windows:
+    name: Запуск на Windows
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: halflife-calc-exe
+          path: exe
+      - name: Самопроверка в окне программы
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'exe\halflife-calc.exe').Path
+          "Размер: {0:N0} КБ" -f ((Get-Item $exe).Length / 1KB)
+          $wv = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
+          "WebView2: $($wv.pv)"
+          $dir = Join-Path $env:RUNNER_TEMP 'самопроверка'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $out = Join-Path $dir 'out.json'
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest', "`"$out`"", '--hold', '30' -PassThru
+          $null = $p.Handle
+          for ($i = 0; $i -lt 120 -and -not (Test-Path $out); $i++) { Start-Sleep 1 }
+          $log = Join-Path $env:LOCALAPPDATA 'HalflifeCalc\halflife-calc.log'
+          if (-not (Test-Path $out)) { if (Test-Path $log) { Get-Content $log }; throw 'Нет результата самопроверки' }
+          Get-Content $out -Raw
+
+          # второй запуск с файлом: программа уже открыта, файл должен открыться в её окне
+          $hlc = Join-Path $dir 'второй запуск.hlc'
+          Set-Content -Path $hlc -Encoding utf8NoBOM -Value '{"format":"halflife-calc","version":4,"roots":["Sr-90"],"activities":{"Sr-90":1000},"hold":1,"holdUnit":"y"}'
+          $p2 = Start-Process -FilePath $exe -ArgumentList "`"$hlc`"" -PassThru
+          $null = $p2.Handle
+          $exited = $p2.WaitForExit(20000)
+          "Второй запуск завершился сам: $exited, код $($p2.ExitCode)"
+          $open = Join-Path $dir 'out.open.json'
+          for ($i = 0; $i -lt 20 -and -not (Test-Path $open); $i++) { Start-Sleep 1 }
+          Start-Sleep 2
+
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $bnd = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $bnd.Width, $bnd.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($bnd.Location, [System.Drawing.Point]::Empty, $bnd.Size)
+          $png = Join-Path $dir 'screen.png'
+          $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+          'SCREENSHOT-BEGIN'
+          [Convert]::ToBase64String([IO.File]::ReadAllBytes($png))
+          'SCREENSHOT-END'
+
+          $null = $p.WaitForExit(90000)
+          "Код выхода: $($p.ExitCode)"
+          if (Test-Path $log) { Get-Content $log }
+
+          $r = Get-Content $out -Raw | ConvertFrom-Json
+          if (-not $r.ok) { throw 'Самопроверка не прошла' }
+          if (-not (Test-Path $open)) { throw 'Второй запуск не передал файл в открытое окно' }
+          $o = Get-Content $open -Raw | ConvertFrom-Json
+          "После второго запуска: $($o.roots -join ', ') — $($o.name)"
+          if ($o.roots -notcontains 'Sr-90') { throw 'Файл второго запуска не открылся' }
+          if (-not $exited -or $p2.ExitCode -ne 0) { throw 'Второй запуск не закрылся сам' }
+          $bytes = [IO.File]::ReadAllBytes((Join-Path $dir 'selftest-bytes.bin'))
+          if ($bytes.Length -ne 6 -or $bytes[0] -ne 80 -or $bytes[5] -ne 255) { throw 'Байты сохранены неверно' }
+          if ((Get-Content (Join-Path $dir 'selftest-text.hlc') -Raw) -notmatch '"format":\s*"halflife-calc"') { throw 'Расчёт сохранён неверно' }
+          if ($p.ExitCode -ne 0) { throw "Программа завершилась с кодом $($p.ExitCode)" }
+          'Всё в порядке'
