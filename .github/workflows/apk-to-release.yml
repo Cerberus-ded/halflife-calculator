@@ -1,0 +1,43 @@
+# Прикрепляет APK из папки apk/ к релизам vX.Y на GitHub, если в релизе его ещё нет.
+# APK новой версии, положенный сюда до выпуска, возьмёт сам выпуск (release.yml в main).
+name: APK в релизы
+
+on:
+  push:
+    branches: [android-builds]
+    paths: ['apk/**', '.github/workflows/apk-to-release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    name: Прикрепить APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: APK в релизы
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          for f in apk/halflife-calc-*.apk; do
+            name=$(basename "$f")
+            v=${name#halflife-calc-}; v=${v%.apk}
+            tag="v$v"
+            if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "::notice::Релиза $tag ещё нет: $name войдёт в него при выпуске"
+              continue
+            fi
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$name"; then
+              echo "$tag: $name уже есть"
+              continue
+            fi
+            gh release upload "$tag" "$f" --repo "$GITHUB_REPOSITORY"
+            echo "$tag: прикреплён $name"
+          done
