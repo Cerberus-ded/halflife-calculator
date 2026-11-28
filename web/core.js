@@ -135,12 +135,14 @@
       name: x.name, root: x.root, stable: x.lambda === 0, lambda: x.lambda, T: x.T, src: x.src,
       A0: x.lambda > 0 ? Number(A0[x.name]) || 0 : 0, N0: N0[i], N: N[i], A: x.lambda * N[i],
     }));
-    const series = { t: [], A: [] };
+    const series = { t: [], A: [], N: [] };
     const P = points || 300;
     for (let p = 0; p <= P; p++) {
       const t = tSec * p / P;
+      const n = sol.N(t);
       series.t.push(t);
-      series.A.push(sol.N(t).map((v, i) => set[i].lambda * v));
+      series.A.push(n.map((v, i) => set[i].lambda * v));
+      series.N.push(n); // число атомов: для графика массы (в том числе стабильных)
     }
     return { rows, series, coef: sol.coef, N0 };
   }
