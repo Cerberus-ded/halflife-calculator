@@ -3,7 +3,7 @@
  */
 (function (global) {
   'use strict';
-  const VERSION = '1.2';
+  const VERSION = '1.3';
   const DATA_DATE = '27.11.2026';
 
   // Сводка по базе считается при загрузке, чтобы тексты не расходились с nucdb.js.
