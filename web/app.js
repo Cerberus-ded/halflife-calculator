@@ -2,6 +2,7 @@
  * Ввод родоначальников и активностей, расчёт (HLCore), таблица результата, график A(t), формулы (HLFormulas),
  * файлы проекта .hlc, экспорт в Excel (HLXlsx), примеры (HLPresets), справка (HLHelp).
  * Работает в браузере (file:// и http/https), как PWA, в Electron (window.hostBridge из desktop/preload.js)
+ * и в компактной версии для Windows (WebView2, window.hostBridge из windows/bridge.js: меню остаётся на странице)
  * и в Android WebView (window.AndroidHost).
  */
 (function () {
@@ -14,7 +15,8 @@
   const SCH = window.HLScheme || null; // картинка схемы распада (SVG)
   const IMP = window.HLImport || null; // загрузка формул: Maple, LaTeX, Python, текст, таблица, Excel
   const DB = window.NUCDB || {};
-  const host = window.hostBridge || null; // Electron
+  const host = window.hostBridge || null; // Electron или компактная версия для Windows
+  const nativeMenu = !!host && host.nativeMenu !== false; // у Electron своё меню и горячие клавиши
   const android = window.AndroidHost || null; // Android WebView
 
   const APP_TITLE = 'Калькулятор полураспада';
@@ -2852,7 +2854,7 @@
   function bindKeys() {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeMenus();
-      if (host) return; // в Electron горячие клавиши обрабатывает нативное меню
+      if (nativeMenu) return; // в Electron горячие клавиши обрабатывает нативное меню
       if ($('#dlg') && $('#dlg').open) return;
       if (e.key === 'F1') { e.preventDefault(); run('guide'); return; }
       if (e.key === 'F9') { e.preventDefault(); run(state.locked ? 'edit' : 'calc'); return; }
@@ -2989,7 +2991,7 @@
 
   // ---------- запуск ----------
   function init() {
-    if (host) document.body.classList.add('electron');
+    if (nativeMenu) document.body.classList.add('electron');
     if (android) document.body.classList.add('android');
     if (window.HLNoPrint) { const pi = $('#printItem'); if (pi) pi.hidden = true; }
     loadIaeaUpdate();

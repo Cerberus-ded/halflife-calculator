@@ -1,0 +1,36 @@
+// Ресурсы halflife-calc.exe: значок, манифест, сведения о файле (Свойства → Подробно).
+// Собирается в rsrc_windows_amd64.syso утилитой windres (build.sh); номер версии build.sh пишет в version.h.
+#pragma code_page(65001)
+#include "version.h"
+
+1 ICON "../desktop/icon.ico"
+1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION VER_MAJOR, VER_MINOR, 0, 0
+PRODUCTVERSION VER_MAJOR, VER_MINOR, 0, 0
+FILEFLAGSMASK 0x3f
+FILEFLAGS 0
+FILEOS 0x40004
+FILETYPE 1
+FILESUBTYPE 0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "041904B0"
+    BEGIN
+      VALUE "CompanyName", "Химическая программа"
+      VALUE "FileDescription", "Калькулятор полураспада"
+      VALUE "FileVersion", VER_STR
+      VALUE "InternalName", "halflife-calc"
+      VALUE "LegalCopyright", "© 2026 Химическая программа"
+      VALUE "OriginalFilename", "halflife-calc.exe"
+      VALUE "ProductName", "Калькулятор полураспада"
+      VALUE "ProductVersion", VER_STR
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x419, 1200
+  END
+END

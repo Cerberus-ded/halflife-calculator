@@ -8,3 +8,7 @@ node_modules/
 artifact/*
 !artifact/build_artifact.py
 !artifact/artifact-host.js
+# Компактная версия для Windows: копия web/ и ресурсы собирает windows/build.sh
+windows/web/
+windows/version.h
+windows/*.syso
