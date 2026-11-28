@@ -5,7 +5,7 @@
  */
 'use strict';
 const CACHE_PREFIX = 'halflife-calc-';
-const CACHE = CACHE_PREFIX + 'v7';
+const CACHE = CACHE_PREFIX + 'v8';
 const FILES = [
   'index.html', 'style.css', 'manifest.webmanifest',
   'nucdb.js', 'core.js', 'formulas.js', 'formula-import.js', 'xlsx.js', 'tools.js', 'masses.js', 'amount.js', 'scheme.js', 'presets.js', 'help.js', 'elements.js', 'picker.js', 'ptable.js', 'app.js',
