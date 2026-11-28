@@ -1,4 +1,5 @@
-# Выпуск версии: тег vX.Y и релиз на GitHub со сборкой для Windows и веб-архивом.
+# Выпуск версии: тег vX.Y и релиз на GitHub: компактный exe для Windows, APK для Android, веб-архив
+# и прежняя большая сборка Electron для Windows (запасной вариант).
 #
 # Номер версии берётся из desktop/package.json ("1.1.0" → v1.1). Его поднимают при каждом обновлении
 # вместе с web/app.js, web/help.js и android/AndroidManifest.xml (сверяет tests/check_version.js),
@@ -7,8 +8,9 @@
 #
 # Вручную: Actions → «Выпуск версии» → Run workflow, в поле «ref» — коммит, например a455279 для версии 1.0.
 #
-# APK в релиз не входит: ключ подписи не хранится в открытом репозитории (с другим ключом обновление
-# на телефоне не встанет). APK собирают отдельно (android/build.sh) и хранят рядом с остальными сборками.
+# APK собирают отдельно (android/build.sh): ключ подписи не хранится в открытом репозитории (с другим ключом
+# обновление на телефоне не встанет). Подписанный APK кладут в ветку android-builds (apk/halflife-calc-X.Y.apk):
+# если он там уже есть, релиз берёт его отсюда, а если появится позже — его прикрепит workflow ветки android-builds.
 name: Выпуск версии
 
 on:
@@ -62,6 +64,12 @@ jobs:
         with:
           node-version: 22
 
+      - if: steps.v.outputs.exists == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: windows/go.mod
+          cache-dependency-path: windows/go.sum
+
       - name: Проверка базы, примеров и импорта формул
         if: steps.v.outputs.exists == 'false'
         run: |
@@ -82,6 +90,24 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release"
           mv "$RUNNER_TEMP/dist/halflife-calc-win-x64.zip" "$RUNNER_TEMP/release/halflife-calc-$v-win-x64.zip"
           mv "$RUNNER_TEMP/dist/halflife-calc-web.zip" "$RUNNER_TEMP/release/halflife-calc-$v-web.zip"
+
+      - name: Компактная версия для Windows (exe)
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q binutils-mingw-w64-x86-64
+          bash windows/build.sh "$RUNNER_TEMP/exe"
+          mv "$RUNNER_TEMP/exe/halflife-calc.exe" "$RUNNER_TEMP/release/halflife-calc-${{ steps.v.outputs.short }}.exe"
+
+      - name: APK из ветки android-builds
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          apk="apk/halflife-calc-${{ steps.v.outputs.short }}.apk"
+          if git fetch --depth 1 origin android-builds 2>/dev/null && git cat-file -e "FETCH_HEAD:$apk" 2>/dev/null; then
+            git show "FETCH_HEAD:$apk" > "$RUNNER_TEMP/release/$(basename "$apk")"
+            echo "APK взят из android-builds: $apk"
+          else
+            echo "::notice::В ветке android-builds пока нет $apk — его прикрепит workflow этой ветки, когда APK туда положат"
+          fi
           ls -la "$RUNNER_TEMP/release"
 
       - name: Что нового (из CHANGELOG.md в main)
@@ -98,8 +124,11 @@ jobs:
             const esc = v.replace(/\./g, "\\.");
             const m = text.match(new RegExp("^## " + esc + "\\b[^\\n]*\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))", "m"));
             const body = (m ? m[1].trim() : "Версия " + v + ".") + "\n\n" +
-              "**Файлы:** `halflife-calc-" + v + "-win-x64.zip` — Windows 10/11 (64 бит), распаковать и запустить halflife-calc.exe; " +
-              "`halflife-calc-" + v + "-web.zip` — версия для браузера, открыть index.html.\n";
+              "**Файлы:**\n" +
+              "- `halflife-calc-" + v + ".exe` — Windows 10/11, один файл около 8 МБ: скачать и запустить, установка не нужна.\n" +
+              "- `halflife-calc-" + v + ".apk` — Android 5 и новее: открыть на телефоне и установить (разрешить установку из этого источника).\n" +
+              "- `halflife-calc-" + v + "-web.zip` — версия для браузера: распаковать и открыть index.html.\n" +
+              "- `halflife-calc-" + v + "-win-x64.zip` — прежняя большая сборка для Windows (145 МБ), если exe не запускается.\n";
             fs.writeFileSync(out, body);
           ' "$RUNNER_TEMP/CHANGELOG.md" "$V" "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
@@ -109,7 +138,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create '${{ steps.v.outputs.tag }}' "$RUNNER_TEMP"/release/*.zip \
+          gh release create '${{ steps.v.outputs.tag }}' "$RUNNER_TEMP"/release/* \
             --repo "$GITHUB_REPOSITORY" \
             --target '${{ steps.v.outputs.sha }}' \
             --title 'Версия ${{ steps.v.outputs.short }}' \

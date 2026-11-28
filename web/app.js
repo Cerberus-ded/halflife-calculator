@@ -2858,7 +2858,11 @@
       if ($('#dlg') && $('#dlg').open) return;
       if (e.key === 'F1') { e.preventDefault(); run('guide'); return; }
       if (e.key === 'F9') { e.preventDefault(); run(state.locked ? 'edit' : 'calc'); return; }
+      // в компактной версии для Windows — те же клавиши, что в нативном меню Electron (в браузере их занимает сам браузер)
+      if (host && e.key === 'F2') { e.preventDefault(); if (state.locked) run('edit'); return; }
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const tabKeys = { Digit1: 'result', Digit2: 'chart', Digit3: 'scheme', Digit4: 'formulas' };
+      if (host && tabKeys[e.code] && !e.shiftKey) { e.preventDefault(); run('tab', tabKeys[e.code]); return; }
       // e.code не зависит от раскладки (работает и в русской)
       const map = { KeyN: 'new', KeyO: 'open', KeyS: e.shiftKey ? 'saveAs' : 'save', KeyE: 'export', KeyP: 'print' };
       const cmd = map[e.code];

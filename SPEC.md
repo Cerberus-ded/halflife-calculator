@@ -5,11 +5,13 @@
 инструкция для пользователя — в [README.md](README.md). Состояние на 27.11.2026 (после PR #11–#13).
 
 Язык интерфейса — русский. Пользователь — радиохимик, но интерфейс рассчитан на человека, который видит программу впервые.
-Всё работает офлайн. Одна кодовая база `web/` и три обёртки:
+Всё работает офлайн. Одна кодовая база `web/` и четыре обёртки:
 
 - **веб** — `web/index.html` открывается двойным щелчком (file://) или с любого статического хостинга; на телефоне — PWA
   (`manifest.webmanifest` и `sw.js`);
-- **Windows** — Electron в `desktop/` (нативное меню, системные диалоги, открытие `.hlc` двойным щелчком);
+- **Windows, компактная** — `windows/` (с версии 1.3): один exe около 8 МБ на Go и WebView2, веб-версия зашита внутрь
+  и отдаётся окну с 127.0.0.1:47811; меню остаётся на странице, диалоги «Открыть» и «Сохранить» — системные;
+- **Windows, Electron** — `desktop/` (нативное меню, системные диалоги, открытие `.hlc` двойным щелчком), прежняя большая сборка;
 - **Android** — WebView в `android/` (страница из `file:///android_asset/www/`).
 
 Прежний «инженерный» вид хранится в ветке `classic` и не развивается.
@@ -78,6 +80,9 @@
 
 - **Windows**: `desktop/preload.js` даёт странице `window.hostBridge`: `state`, `setPresets`, `onCommand`, `openFile`,
   `saveFile`, `fetchText` (только сайт IAEA), `closeNow`. В Electron HTML-меню скрыто (`body.electron`).
+- **Windows, компактная**: `windows/bridge.js` даёт тот же `window.hostBridge` с `kind: 'webview2'` и `nativeMenu: false`
+  (меню и горячие клавиши на странице, плюс F2 и Ctrl+1–4), `openFile`, `saveFile`, `fetchText`, `closeNow`, `state`, `ready`.
+  Оболочка вызывает `__hlOpen(файл)` (запуск с файлом, второй запуск) и `__hlClose()` (крестик окна).
 - **Android**: `MainActivity.java` даёт `window.AndroidHost`: `saveFile(имя, mime, base64)` (системный «Сохранить как»),
   `copyText`, `fetchText`, `print`, `isAndroid`. Скачивания `<a download>` и `navigator.clipboard` в WebView не работают.
 - **claude.ai**: `artifact/build_artifact.py` собирает страницу с `artifact/artifact-host.js` (сохранение через
@@ -98,11 +103,14 @@ mpmath, numpy, scipy, sympy. Если менялся `desktop/`, дополни�
 
 - Windows и веб-архив: `cd desktop && npm install && node build.mjs` → `dist/halflife-calc-win-x64.zip`,
   `dist/halflife-calc-web.zip`.
+- Компактная версия для Windows: `bash windows/build.sh <папка>` → `<папка>/halflife-calc.exe` (нужны Go 1.22+ и windres
+  из MinGW). Проверка на настоящей Windows — `.github/workflows/windows-exe.yml` (самопроверка `--selftest`).
 - Android: `android/build.sh <рабочая папка>` → `dist/halflife-calc.apk` (нужны aapt, dx, zipalign, apksigner).
+  Подписанный APK кладут в ветку `android-builds` (`apk/halflife-calc-X.Y.apk`): оттуда он попадает в релиз.
 - GitHub Pages: `.github/workflows/pages.yml` публикует `web/` после тестов, когда Pages включены в настройках репозитория.
 - Версии: номер в `desktop/package.json`, `web/app.js`, `web/help.js`, `android/AndroidManifest.xml` и `CHANGELOG.md`
   (проверяет `tests/check_version.js`). Новый номер в `main` → `.github/workflows/release.yml` создаёт тег `vX.Y` и релиз
-  со сборкой для Windows и веб-архивом. Правила — раздел «Версии» в ROADMAP.md.
+  с exe для Windows, APK (из ветки `android-builds`), веб-архивом и сборкой Electron. Правила — раздел «Версии» в ROADMAP.md.
 
 ## Общая папка проекта
 

@@ -78,13 +78,19 @@ const FAKE = `
 
     // Excel: байты уходят в base64
     await p.click('#calcBtn'); await p.waitForTimeout(250);
+    // клавиши нативного меню Electron работают и здесь: Ctrl+2 — «График», Ctrl+1 — «Таблица»
+    await p.keyboard.press('Control+2'); await p.waitForTimeout(120);
+    const tabChart = await p.getAttribute('#tab-chart', 'aria-selected');
+    await p.keyboard.press('Control+1'); await p.waitForTimeout(120);
+    check(tabChart === 'true' && await p.getAttribute('#tab-result', 'aria-selected') === 'true', 'Ctrl+2 и Ctrl+1 переключают вкладки');
     await reset();
     await p.evaluate(() => { window.__reply = { save: { value: { path: 'C:\\Расчёты\\цезий.xlsx', name: 'цезий.xlsx' } } }; });
     await p.click('#exportBtn'); await p.waitForTimeout(400);
     sv = await calls('save');
     const xb = sv.length ? Buffer.from(sv[0][1].b64, 'base64') : Buffer.alloc(0);
     check(sv.length === 1 && !sv[0][1].isText && xb.slice(0, 2).toString() === 'PK' && /\.xlsx$/.test(sv[0][1].suggestedName), `Excel: ${xb.length} байт (zip) через оболочку`);
-    await p.click('#editBtn').catch(() => {});
+    await p.keyboard.press('F2'); await p.waitForTimeout(120);
+    check(!(await p.evaluate(() => App.snapshot().locked)), 'F2 — «Изменить данные»');
 
     // «Открыть»: диалог оболочки, затем расчёт из файла
     await p.evaluate(() => { App.loadText(App.serialize(), 'чистый.hlc'); });
