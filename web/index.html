@@ -137,20 +137,30 @@
         <div class="step-titles">
           <h2>Сколько было вначале?</h2>
           <p class="step-hint">Впишите начальную <b>активность</b>: сколько распадов происходит за секунду.
-            1&nbsp;Бк (беккерель) — один распад в секунду. Если какого-то изотопа нет, оставьте 0.</p>
+            1&nbsp;Бк (беккерель) — один распад в секунду. Знаете массу? Выберите единицу <b>г</b> или <b>мг</b>.
+            Если какого-то изотопа нет, оставьте 0.</p>
         </div>
       </div>
 
       <div class="table-caption">
         <label for="actUnit">Единица</label>
-        <select id="actUnit" class="unit-select" title="В этих единицах вводится активность и показывается результат">
-          <option value="Bq" selected>Бк — беккерели</option>
-          <option value="kBq">кБк — тысячи Бк</option>
-          <option value="MBq">МБк — миллионы Бк</option>
-          <option value="GBq">ГБк — миллиарды Бк</option>
-          <option value="uCi">мкКи — микрокюри</option>
-          <option value="mCi">мКи — милликюри</option>
-          <option value="Ci">Ки — кюри</option>
+        <select id="actUnit" class="unit-select" title="В этих единицах вводится начальное количество и показывается результат: активность или масса">
+          <optgroup label="Активность">
+            <option value="Bq" selected>Бк — беккерели</option>
+            <option value="kBq">кБк — тысячи Бк</option>
+            <option value="MBq">МБк — миллионы Бк</option>
+            <option value="GBq">ГБк — миллиарды Бк</option>
+            <option value="uCi">мкКи — микрокюри</option>
+            <option value="mCi">мКи — милликюри</option>
+            <option value="Ci">Ки — кюри</option>
+          </optgroup>
+          <optgroup label="Масса" id="massUnits">
+            <option value="g">г — граммы</option>
+            <option value="mg">мг — миллиграммы</option>
+            <option value="ug">мкг — микрограммы</option>
+            <option value="ng">нг — нанограммы</option>
+            <option value="pg">пг — пикограммы</option>
+          </optgroup>
         </select>
       </div>
 
@@ -254,7 +264,7 @@
       <span class="step-num" aria-hidden="true">4</span>
       <div class="step-titles">
         <h2 id="resultTitle">Результат</h2>
-        <p class="step-hint">Сколько активности осталось у каждого изотопа</p>
+        <p class="step-hint" id="resultHint">Сколько активности осталось у каждого изотопа</p>
       </div>
     </div>
 
@@ -322,8 +332,8 @@
         </table>
       </div>
       <ul class="read-help" aria-label="Как читать таблицу">
-        <li><b>A₀</b> — было вначале</li>
-        <li><b>A(…)</b> — осталось через заданное время</li>
+        <li><b id="rhA0">A₀</b> — было вначале</li>
+        <li><b id="rhAt">A(…)</b> — осталось через заданное время</li>
         <li><b>Сумма</b> — вся цепочка вместе</li>
         <li><b>1,5E6</b> означает 1,5 × 10⁶ = 1 500 000</li>
       </ul>
@@ -331,7 +341,7 @@
 
     <div class="tab-panel" data-panel="chart" id="tp-chart" role="tabpanel" aria-labelledby="tab-chart" hidden>
       <div class="toolbar">
-        <p class="panel-note">Как менялась активность каждого изотопа со временем. Логарифмическая шкала показывает и большие,
+        <p class="panel-note">Как менялась активность каждого изотопа со временем (масса — если начальное количество задано в граммах). Логарифмическая шкала показывает и большие,
           и очень маленькие значения; обычная — привычные пропорции. Снимите галочку, чтобы скрыть линию.</p>
         <div class="chart-scale" role="group" aria-label="Шкала по вертикали">
           <button class="fmt active" type="button" data-scale="log" aria-pressed="true">Логарифмическая</button>
